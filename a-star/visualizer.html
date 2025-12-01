@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A* 演算法：從原理到實踐</title>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --accent-color: #3498db;
+            --bg-light: #f8f9fa;
+            --text-color: #333;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            color: var(--text-color);
+            background-color: #fff;
+        }
+
+        /* --- Header Section --- */
+        header {
+            background: linear-gradient(135deg, #2c3e50, #4a69bd);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+        }
+
+        header h1 { margin: 0; font-size: 2.5rem; }
+        header p { font-size: 1.2rem; opacity: 0.9; margin-top: 10px; }
+
+        /* --- Content Containers --- */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        section { margin-bottom: 60px; }
+        h2 { color: var(--primary-color); border-bottom: 3px solid var(--accent-color); display: inline-block; padding-bottom: 5px; margin-bottom: 20px; }
+        
+        /* --- Theory Section --- */
+        .theory-box {
+            background: var(--bg-light);
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .formula {
+            font-size: 1.5rem;
+            text-align: center;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin: 20px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        ul.features li { margin-bottom: 10px; }
+
+        /* --- Visualizer Section --- */
+        #visualizer-section {
+            text-align: center;
+            background-color: #f0f4f8; /* 稍微區隔背景 */
+            padding-top: 40px;
+            padding-bottom: 40px;
+        }
+
+        .viz-controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 25px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:active { transform: scale(0.95); }
+
+        .btn-start { background-color: #27ae60; color: white; }
+        .btn-start:hover { background-color: #219150; box-shadow: 0 4px 10px rgba(39, 174, 96, 0.3); }
+        .btn-reset { background-color: #e74c3c; color: white; }
+        .btn-reset:hover { background-color: #c0392b; box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3); }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            font-size: 0.9rem;
+        }
+        .legend-item { display: flex; align-items: center; }
+        .box { width: 12px; height: 12px; margin-right: 5px; border: 1px solid #999; }
+
+        canvas {
+            background: white;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            max-width: 100%;
+            cursor: crosshair;
+        }
+        
+        .status-text {
+            margin-top: 15px;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #555;
+            height: 25px; /* 固定高度避免跳動 */
+        }
+
+        /* --- Game Link Section --- */
+        .game-cta {
+            text-align: center;
+            padding: 60px 20px;
+            background: #2c3e50;
+            color: white;
+            border-radius: 15px;
+            margin-bottom: 40px;
+        }
+        .game-cta h2 { color: white; border-color: white; }
+        .btn-game {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 15px 40px;
+            background: var(--accent-color);
+            color: white;
+            text-decoration: none;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 50px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transition: 0.3s;
+        }
+        .btn-game:hover {
+            background: #2980b9;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+
+        /* Responsive for Canvas */
+        @media (max-width: 768px) {
+            .formula { font-size: 1.2rem; }
+            canvas { width: 100%; height: auto; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>A* Pathfinding Algorithm</h1>
+        <p>探索遊戲開發與 AI 最經典的尋路演算法</p>
+    </header>
+
+    <div class="container">
+        <section id="theory">
+            <h2>1. 什麼是 A* 演算法？</h2>
+            <div class="theory-box">
+                <p>A* (A-Star) 發表於 1968 年，被認為是目前最流行的尋路演算法。它結合了 Dijkstra 演算法（保證最短路徑）與貪婪最佳優先搜尋（Greedy Best-First Search，搜尋速度快）的優點。</p>
+                <p>它的核心機制在於為每一個格子計算一個評分 <strong>F</strong>，演算法總是優先選擇 F 值最低的格子進行探索。</p>
+                
+                <div class="formula">F(n) = G(n) + H(n)</div>
+                
+                <ul class="features">
+                    <li><strong>G(n) - 實際代價：</strong> 從起點走到目前格子的步數（已知成本）。</li>
+                    <li><strong>H(n) - 啟發代價：</strong> 預估從目前格子走到終點的距離（未知成本，通常用直線距離估算）。</li>
+                    <li><strong>F(n) - 總評估：</strong> 結合兩者，既考慮「已經走了多遠」，也考慮「離目標還有多遠」。</li>
+                </ul>
+            </div>
+        </section>
+    </div>
+
+    <section id="visualizer-section">
+        <div class="container">
+            <h2>2. 演算法視覺化演示</h2>
+            <p>請點擊下方畫布繪製黑色牆壁，然後按下開始。觀察數字變化：</p>
+            
+            <div class="legend">
+                <div class="legend-item"><div class="box" style="background:green;"></div> 起點</div>
+                <div class="legend-item"><div class="box" style="background:red;"></div> 終點</div>
+                <div class="legend-item"><div class="box" style="background:rgba(0, 255, 0, 0.3);"></div> 考慮中 (Open)</div>
+                <div class="legend-item"><div class="box" style="background:rgba(255, 0, 0, 0.2);"></div> 已檢查 (Closed)</div>
+                <div class="legend-item"><div class="box" style="background:#3498db;"></div> 最佳路徑</div>
+            </div>
+
+            <div class="viz-controls">
+                <button class="btn-start" onclick="startPathfinding()">▶ 開始計算</button>
+                <button class="btn-reset" onclick="resetGrid()">↺ 清除/重置</button>
+            </div>
+
+            <canvas id="gridCanvas"></canvas>
+            <div class="status-text" id="statusText">準備就緒</div>
+        </div>
+    </section>
+
+    <div class="container">
+        <section id="game-link">
+            <div class="game-cta">
+                <h2>3. 實際應用體驗</h2>
+                <p>理解原理後，讓我們看看 A* 如何應用在遊戲中的敵人 AI 上。</p>
+                <p>在下面這個小遊戲中，殭屍會使用 A* 演算法即時計算路徑來追蹤你，即使有牆壁阻擋也能找到路。</p>
+                <a href="game.html" class="btn-game">🎮 試玩：殭屍追蹤者 (Game Demo)</a>
+            </div>
+        </section>
+    </div>
+
+<script>
+    // --- A* Visualizer Logic (Integrated) ---
+    
+    // 設定參數
+    const cellSize = 40; // 稍微縮小以適應手機直向
+    let cols = 18;
+    let rows = 12;
+    
+    // 響應式調整網格數量
+    if (window.innerWidth < 800) {
+        cols = 10;
+        rows = 12;
+    }
+
+    const canvas = document.getElementById('gridCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusText = document.getElementById('statusText');
+
+    canvas.width = cols * cellSize;
+    canvas.height = rows * cellSize;
+
+    let grid = [];
+    let openSet = [];
+    let closedSet = [];
+    let start, end;
+    let path = [];
+    let isFinished = false;
+    let isRunning = false;
+    let animationSpeed = 50;
+
+    class Spot {
+        constructor(i, j) {
+            this.i = i;
+            this.j = j;
+            this.f = 0;
+            this.g = 0;
+            this.h = 0;
+            this.neighbors = [];
+            this.previous = undefined;
+            this.wall = false;
+            
+            // 隨機牆壁
+            if (Math.random() < 0.15) this.wall = true;
+        }
+
+        show(color, isPath = false) {
+            const x = this.i * cellSize;
+            const y = this.j * cellSize;
+
+            if (this.wall) {
+                ctx.fillStyle = '#333';
+                ctx.fillRect(x, y, cellSize, cellSize);
+                return;
+            } else if (color) {
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, cellSize, cellSize);
+            } else {
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(x, y, cellSize, cellSize);
+            }
+            
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.strokeRect(x, y, cellSize, cellSize);
+
+            // 顯示數字 (G, H, F)
+            if (this.f > 0 || this === start || this === end) {
+                ctx.fillStyle = (isPath || this === start || this === end) ? '#fff' : '#000';
+                
+                // 簡化顯示：只在螢幕夠大時顯示詳細數據，手機版可能太擠
+                // 這裡我們稍微調整字體大小
+                ctx.font = '8px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(this.g, x + 2, y + 10); // G
+
+                ctx.textAlign = 'right';
+                ctx.fillText(this.h, x + cellSize - 2, y + 10); // H
+
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.f, x + cellSize / 2, y + cellSize / 2 + 5); // F
+            }
+        }
+
+        addNeighbors(grid) {
+            let i = this.i;
+            let j = this.j;
+            if (i < cols - 1) this.neighbors.push(grid[i + 1][j]);
+            if (i > 0) this.neighbors.push(grid[i - 1][j]);
+            if (j < rows - 1) this.neighbors.push(grid[i][j + 1]);
+            if (j > 0) this.neighbors.push(grid[i][j - 1]);
+        }
+    }
+
+    function init() {
+        grid = new Array(cols);
+        for (let i = 0; i < cols; i++) {
+            grid[i] = new Array(rows);
+            for (let j = 0; j < rows; j++) {
+                grid[i][j] = new Spot(i, j);
+            }
+        }
+        for (let i = 0; i < cols; i++) {
+            for (let j = 0; j < rows; j++) {
+                grid[i][j].addNeighbors(grid);
+            }
+        }
+        
+        start = grid[0][0];
+        end = grid[cols - 1][rows - 1];
+        start.wall = false;
+        end.wall = false;
+
+        openSet = [start];
+        closedSet = [];
+        path = [];
+        isFinished = false;
+        isRunning = false;
+        statusText.innerText = "準備就緒：請點擊牆壁或按開始";
+        statusText.style.color = "#555";
+        draw();
+    }
+
+    function heuristic(a, b) {
+        return Math.abs(a.i - b.i) + Math.abs(a.j - b.j);
+    }
+
+    function startPathfinding() {
+        if (isRunning || isFinished) return;
+        isRunning = true;
+        statusText.innerText = "計算中...";
+        statusText.style.color = "#d35400";
+        
+        const loop = setInterval(() => {
+            if (openSet.length > 0) {
+                let winner = 0;
+                for (let i = 0; i < openSet.length; i++) {
+                    if (openSet[i].f < openSet[winner].f) {
+                        winner = i;
+                    } else if (openSet[i].f == openSet[winner].f) {
+                        if (openSet[i].h < openSet[winner].h) {
+                            winner = i;
+                        }
+                    }
+                }
+                let current = openSet[winner];
+
+                if (current === end) {
+                    clearInterval(loop);
+                    isFinished = true;
+                    isRunning = false;
+                    reconstructPath(current);
+                    draw();
+                    statusText.innerText = `成功找到路徑！(步數: ${path.length})`;
+                    statusText.style.color = "green";
+                    return;
+                }
+
+                openSet.splice(winner, 1);
+                closedSet.push(current);
+
+                let neighbors = current.neighbors;
+                for (let i = 0; i < neighbors.length; i++) {
+                    let neighbor = neighbors[i];
+                    if (!closedSet.includes(neighbor) && !neighbor.wall) {
+                        let tempG = current.g + 1;
+                        let newPath = false;
+                        if (openSet.includes(neighbor)) {
+                            if (tempG < neighbor.g) {
+                                neighbor.g = tempG;
+                                newPath = true;
+                            }
+                        } else {
+                            neighbor.g = tempG;
+                            newPath = true;
+                            openSet.push(neighbor);
+                        }
+                        if (newPath) {
+                            neighbor.h = heuristic(neighbor, end);
+                            neighbor.f = neighbor.g + neighbor.h;
+                            neighbor.previous = current;
+                        }
+                    }
+                }
+            } else {
+                console.log("No solution");
+                clearInterval(loop);
+                isFinished = true;
+                isRunning = false;
+                statusText.innerText = "無解：無法抵達終點";
+                statusText.style.color = "red";
+                draw();
+                return;
+            }
+            
+            // 動畫過程中的路徑預覽
+            if(!isFinished) {
+                 let tempPathNode = openSet.length > 0 ? openSet[0] : null; 
+                 if(closedSet.length > 0) tempPathNode = closedSet[closedSet.length-1];
+                 reconstructPath(tempPathNode);
+            }
+            draw();
+        }, animationSpeed);
+    }
+
+    function reconstructPath(current) {
+        path = [];
+        let temp = current;
+        if(!temp) return;
+        path.push(temp);
+        while (temp.previous) {
+            path.push(temp.previous);
+            temp = temp.previous;
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < cols; i++) {
+            for (let j = 0; j < rows; j++) {
+                grid[i][j].show();
+            }
+        }
+        for (let i = 0; i < closedSet.length; i++) {
+            closedSet[i].show('rgba(255, 0, 0, 0.2)');
+        }
+        for (let i = 0; i < openSet.length; i++) {
+            openSet[i].show('rgba(0, 255, 0, 0.3)');
+        }
+        for (let i = 0; i < path.length; i++) {
+            path[i].show('#3498db', true);
+        }
+        start.show('#27ae60', true);
+        end.show('#c0392b', true);
+    }
+    
+    canvas.addEventListener('mousedown', (e) => {
+        if (isRunning) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const i = Math.floor(x / cellSize);
+        const j = Math.floor(y / cellSize);
+        if (i >= 0 && i < cols && j >= 0 && j < rows) {
+            if (grid[i][j] !== start && grid[i][j] !== end) {
+                grid[i][j].wall = !grid[i][j].wall;
+                if(isFinished) init(); else draw();
+            }
+        }
+    });
+
+    function resetGrid() {
+        init();
+    }
+
+    // 初始化
+    init();
+
+</script>
+</body>
+</html>

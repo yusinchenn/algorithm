@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>A* Zombie Chase Game</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #222; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        canvas { background: #333; border: 4px solid #555; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        .info { margin-bottom: 10px; text-align: center; }
+        .key { display: inline-block; padding: 5px 10px; border: 1px solid #777; border-radius: 4px; background: #444; font-size: 12px; margin: 0 2px; }
+    </style>
+</head>
+<body>
+
+    <div class="info">
+        <h1>A* 殭屍追蹤遊戲</h1>
+        <p>控制: <span class="key">↑</span> <span class="key">↓</span> <span class="key">←</span> <span class="key">→</span> 移動</p>
+        <p>藍色：玩家 | 紅色：殭屍 (AI) | 黑色：牆壁</p>
+    </div>
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const TILE_SIZE = 30;
+    const COLS = 20;
+    const ROWS = 20;
+    
+    // Map representation (0: Empty, 1: Wall)
+    let map = [];
+    
+    // Actors
+    let player = { x: 1, y: 1, color: '#00aaff' };
+    let enemy = { x: 18, y: 18, color: '#ff4444', path: [] };
+    
+    // Game Loop
+    let lastTime = 0;
+    let enemyMoveTimer = 0;
+    const ENEMY_MOVE_DELAY = 300; // Enemy moves every 300ms
+
+    // --- A* Algorithm Logic ---
+    class Node {
+        constructor(x, y, parent = null) {
+            this.x = x;
+            this.y = y;
+            this.parent = parent;
+            this.g = 0;
+            this.h = 0;
+            this.f = 0;
+        }
+    }
+
+    function getPath(startX, startY, endX, endY) {
+        let openList = [];
+        let closedList = [];
+        let startNode = new Node(startX, startY);
+        let endNode = new Node(endX, endY);
+        
+        openList.push(startNode);
+
+        while (openList.length > 0) {
+            // Find node with lowest f
+            let lowInd = 0;
+            for (let i = 0; i < openList.length; i++) {
+                if (openList[i].f < openList[lowInd].f) {
+                    lowInd = i;
+                }
+            }
+            let currentNode = openList[lowInd];
+
+            // End Case
+            if (currentNode.x === endNode.x && currentNode.y === endNode.y) {
+                let curr = currentNode;
+                let ret = [];
+                while (curr.parent) {
+                    ret.push({x: curr.x, y: curr.y});
+                    curr = curr.parent;
+                }
+                return ret.reverse();
+            }
+
+            // Normal Case
+            openList.splice(lowInd, 1);
+            closedList.push(currentNode);
+
+            let neighbors = [];
+            // Direct neighbors (Up, Down, Left, Right)
+            let dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+            
+            for (let i = 0; i < dirs.length; i++) {
+                let nx = currentNode.x + dirs[i][0];
+                let ny = currentNode.y + dirs[i][1];
+
+                // Check Bounds and Walls
+                if (nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS) {
+                    if (map[ny][nx] === 0) { // 0 is walkable
+                        neighbors.push(new Node(nx, ny, currentNode));
+                    }
+                }
+            }
+
+            for (let i = 0; i < neighbors.length; i++) {
+                let neighbor = neighbors[i];
+                // If in closed list, skip
+                if (closedList.find(node => node.x === neighbor.x && node.y === neighbor.y)) {
+                    continue;
+                }
+
+                let gScore = currentNode.g + 1;
+                let gScoreIsBest = false;
+                let existingNode = openList.find(node => node.x === neighbor.x && node.y === neighbor.y);
+
+                if (!existingNode) {
+                    gScoreIsBest = true;
+                    neighbor.h = Math.abs(neighbor.x - endNode.x) + Math.abs(neighbor.y - endNode.y);
+                    openList.push(neighbor);
+                } else if (gScore < existingNode.g) {
+                    gScoreIsBest = true;
+                    neighbor = existingNode; // Update existing
+                }
+
+                if (gScoreIsBest) {
+                    neighbor.parent = currentNode;
+                    neighbor.g = gScore;
+                    neighbor.f = neighbor.g + neighbor.h;
+                }
+            }
+        }
+        return []; // No path
+    }
+
+    // --- Game Logic ---
+    function initMap() {
+        for(let y=0; y<ROWS; y++) {
+            let row = [];
+            for(let x=0; x<COLS; x++) {
+                // Create random walls, keep start/end clear
+                if(Math.random() < 0.2 && !(x===1 && y===1) && !(x===18 && y===18)) {
+                    row.push(1);
+                } else {
+                    row.push(0);
+                }
+            }
+            map.push(row);
+        }
+    }
+
+    function update(deltaTime) {
+        enemyMoveTimer += deltaTime;
+        
+        if (enemyMoveTimer > ENEMY_MOVE_DELAY) {
+            // Recalculate Path every move (Dynamic A*)
+            let path = getPath(enemy.x, enemy.y, player.x, player.y);
+            enemy.path = path; // For visualization
+            
+            if (path.length > 0) {
+                let nextStep = path[0];
+                enemy.x = nextStep.x;
+                enemy.y = nextStep.y;
+            }
+            
+            // Catch condition
+            if (enemy.x === player.x && enemy.y === player.y) {
+                alert("Game Over! 殭屍抓到你了！");
+                resetGame();
+            }
+            
+            enemyMoveTimer = 0;
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw Map
+        for(let y=0; y<ROWS; y++) {
+            for(let x=0; x<COLS; x++) {
+                if(map[y][x] === 1) {
+                    ctx.fillStyle = '#111';
+                    ctx.fillRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = '#333';
+                    ctx.strokeRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                } else {
+                    ctx.fillStyle = '#2a2a2a'; // floor
+                    ctx.fillRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                }
+            }
+        }
+
+        // Draw Path (Debug View)
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if(enemy.path.length > 0) {
+            ctx.moveTo(enemy.x * TILE_SIZE + TILE_SIZE/2, enemy.y * TILE_SIZE + TILE_SIZE/2);
+            for(let p of enemy.path) {
+                ctx.lineTo(p.x * TILE_SIZE + TILE_SIZE/2, p.y * TILE_SIZE + TILE_SIZE/2);
+            }
+        }
+        ctx.stroke();
+
+        // Draw Player
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x*TILE_SIZE + 4, player.y*TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+
+        // Draw Enemy
+        ctx.fillStyle = enemy.color;
+        ctx.fillRect(enemy.x*TILE_SIZE + 4, enemy.y*TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+    }
+
+    function resetGame() {
+        player = { x: 1, y: 1, color: '#00aaff' };
+        enemy = { x: 18, y: 18, color: '#ff4444', path: [] };
+        map = [];
+        initMap();
+    }
+
+    function loop(timestamp) {
+        let deltaTime = timestamp - lastTime;
+        lastTime = timestamp;
+        
+        update(deltaTime);
+        draw();
+        
+        requestAnimationFrame(loop);
+    }
+
+    // Input Handling
+    window.addEventListener('keydown', e => {
+        let nextX = player.x;
+        let nextY = player.y;
+        
+        if (e.key === 'ArrowUp') nextY--;
+        if (e.key === 'ArrowDown') nextY++;
+        if (e.key === 'ArrowLeft') nextX--;
+        if (e.key === 'ArrowRight') nextX++;
+        
+        // Collision Check
+        if (nextX >= 0 && nextX < COLS && nextY >= 0 && nextY < ROWS) {
+            if (map[nextY][nextX] === 0) {
+                player.x = nextX;
+                player.y = nextY;
+            }
+        }
+    });
+
+    initMap();
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
