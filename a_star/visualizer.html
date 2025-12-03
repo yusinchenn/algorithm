@@ -149,10 +149,55 @@
             box-shadow: 0 8px 20px rgba(0,0,0,0.4);
         }
 
+        /* --- Code Display Section --- */
+        .code-section {
+            background: var(--bg-light);
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+        }
+
+        .code-block {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin: 15px 0;
+        }
+
+        .code-block pre {
+            margin: 0;
+            white-space: pre;
+            tab-size: 4;
+        }
+
+        .code-block code {
+            font-family: inherit;
+        }
+
+        .code-block .keyword { color: #c678dd; }
+        .code-block .function { color: #61afef; }
+        .code-block .string { color: #98c379; }
+        .code-block .comment { color: #5c6370; font-style: italic; }
+        .code-block .number { color: #d19a66; }
+        .code-block .variable { color: #e06c75; }
+
+        .code-explanation {
+            margin-top: 15px;
+            padding-left: 15px;
+            border-left: 4px solid var(--accent-color);
+        }
+
         /* Responsive for Canvas */
         @media (max-width: 768px) {
             .formula { font-size: 1.2rem; }
             canvas { width: 100%; height: auto; }
+            .code-block { font-size: 0.8rem; padding: 15px; }
         }
     </style>
 </head>
@@ -179,11 +224,90 @@
                 </ul>
             </div>
         </section>
+
+        <section id="code-example">
+            <h2>2. A* 演算法核心程式碼</h2>
+            <div class="code-section">
+                <p>以下是 A* 演算法的 JavaScript 實作，展示了如何計算最佳路徑：</p>
+
+<pre class="code-block"><code><span class="keyword">function</span> <span class="function">aStar</span>(start, end, grid) {
+    <span class="comment">// 初始化 Open Set 和 Closed Set</span>
+    <span class="keyword">let</span> openSet = [start];
+    <span class="keyword">let</span> closedSet = [];
+
+    <span class="comment">// 開始搜尋循環</span>
+    <span class="keyword">while</span> (openSet.length > <span class="number">0</span>) {
+        <span class="comment">// 1. 從 Open Set 中找出 F 值最小的節點</span>
+        <span class="keyword">let</span> winner = <span class="number">0</span>;
+        <span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="number">0</span>; i &lt; openSet.length; i++) {
+            <span class="keyword">if</span> (openSet[i].<span class="variable">f</span> &lt; openSet[winner].<span class="variable">f</span>) {
+                winner = i;
+            }
+        }
+        <span class="keyword">let</span> current = openSet[winner];
+
+        <span class="comment">// 2. 檢查是否到達終點</span>
+        <span class="keyword">if</span> (current === end) {
+            <span class="keyword">return</span> <span class="function">reconstructPath</span>(current);
+        }
+
+        <span class="comment">// 3. 將當前節點從 Open Set 移至 Closed Set</span>
+        openSet.<span class="function">splice</span>(winner, <span class="number">1</span>);
+        closedSet.<span class="function">push</span>(current);
+
+        <span class="comment">// 4. 檢查所有鄰居節點</span>
+        <span class="keyword">let</span> neighbors = current.<span class="variable">neighbors</span>;
+        <span class="keyword">for</span> (<span class="keyword">let</span> neighbor <span class="keyword">of</span> neighbors) {
+            <span class="comment">// 跳過已檢查的節點和牆壁</span>
+            <span class="keyword">if</span> (closedSet.<span class="function">includes</span>(neighbor) || neighbor.<span class="variable">wall</span>) {
+                <span class="keyword">continue</span>;
+            }
+
+            <span class="comment">// 計算從起點到此鄰居的成本</span>
+            <span class="keyword">let</span> tempG = current.<span class="variable">g</span> + <span class="number">1</span>;
+
+            <span class="comment">// 如果找到更好的路徑，更新該節點</span>
+            <span class="keyword">if</span> (!openSet.<span class="function">includes</span>(neighbor)) {
+                openSet.<span class="function">push</span>(neighbor);
+            } <span class="keyword">else if</span> (tempG &gt;= neighbor.<span class="variable">g</span>) {
+                <span class="keyword">continue</span>;
+            }
+
+            <span class="comment">// 更新節點的 G、H、F 值</span>
+            neighbor.<span class="variable">g</span> = tempG;
+            neighbor.<span class="variable">h</span> = <span class="function">heuristic</span>(neighbor, end);
+            neighbor.<span class="variable">f</span> = neighbor.<span class="variable">g</span> + neighbor.<span class="variable">h</span>;
+            neighbor.<span class="variable">previous</span> = current;
+        }
+    }
+
+    <span class="comment">// 如果 Open Set 為空，表示無解</span>
+    <span class="keyword">return</span> <span class="keyword">null</span>;
+}
+
+<span class="comment">// 啟發函數：計算兩點間的曼哈頓距離</span>
+<span class="keyword">function</span> <span class="function">heuristic</span>(a, b) {
+    <span class="keyword">return</span> Math.<span class="function">abs</span>(a.<span class="variable">i</span> - b.<span class="variable">i</span>) + Math.<span class="function">abs</span>(a.<span class="variable">j</span> - b.<span class="variable">j</span>);
+}</code></pre>
+
+                <div class="code-explanation">
+                    <h3>程式碼重點說明：</h3>
+                    <ul class="features">
+                        <li><strong>Open Set：</strong>存放待評估的節點，每次選擇 F 值最小的節點進行探索。</li>
+                        <li><strong>Closed Set：</strong>存放已經評估過的節點，避免重複檢查。</li>
+                        <li><strong>G 值計算：</strong>從起點走到當前節點的實際步數（每步 +1）。</li>
+                        <li><strong>H 值計算：</strong>使用曼哈頓距離（Manhattan Distance）作為啟發函數，預估到終點的距離。</li>
+                        <li><strong>F 值：</strong>F = G + H，用於決定優先探索哪個節點。</li>
+                        <li><strong>路徑重建：</strong>透過每個節點的 <code>previous</code> 屬性回溯，建立完整路徑。</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
     </div>
 
     <section id="visualizer-section">
         <div class="container">
-            <h2>2. 演算法視覺化演示</h2>
+            <h2>3. 演算法視覺化演示</h2>
             <p>請點擊下方畫布繪製黑色牆壁，然後按下開始。觀察數字變化：</p>
             
             <div class="legend">
@@ -207,7 +331,7 @@
     <div class="container">
         <section id="game-link">
             <div class="game-cta">
-                <h2>3. 實際應用體驗</h2>
+                <h2>4. 實際應用體驗</h2>
                 <p>理解原理後，讓我們看看 A* 如何應用在遊戲中的敵人 AI 上。</p>
                 <p>在下面這個小遊戲中，殭屍會使用 A* 演算法即時計算路徑來追蹤你，即使有牆壁阻擋也能找到路。</p>
                 <a href="game.html" class="btn-game">🎮 試玩：殭屍追蹤者 (Game Demo)</a>
