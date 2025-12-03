@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEON DUELIST - FSM Action Demo</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Orbitron', sans-serif;
+            color: white;
+            user-select: none;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* UI 層 */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 讓點擊穿透到 Canvas */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .bar-container {
+            width: 300px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid #333;
+            height: 20px;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hp-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff0055, #ff4444);
+            width: 100%;
+            transition: width 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+            box-shadow: 0 0 10px #ff0055;
+        }
+
+        .boss-hp-fill {
+            background: linear-gradient(90deg, #aa00ff, #5500ff);
+            box-shadow: 0 0 10px #aa00ff;
+        }
+
+        .state-indicator {
+            font-size: 12px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+
+        .controls-hint {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .key {
+            display: inline-block;
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border-bottom: 2px solid #111;
+            font-size: 12px;
+            color: #fff;
+        }
+
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s;
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #start-screen.active, #game-over-screen.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        /* 開始畫面內容容器 */
+        .start-content {
+            width: 90%;
+            max-width: 700px;
+            text-align: center;
+        }
+
+        .start-title {
+            color: #00ffaa;
+            font-size: clamp(2.5em, 8vw, 5em);
+            margin: 20px 0;
+            text-shadow: 0 0 20px currentColor;
+        }
+
+        .start-subtitle {
+            font-size: clamp(1em, 3vw, 1.3em);
+            margin-bottom: 20px;
+        }
+
+        .controls-list {
+            max-width: 600px;
+            width: 100%;
+            text-align: left;
+            margin: 20px auto;
+            line-height: 1.8;
+            padding: 0 15px;
+            box-sizing: border-box;
+        }
+
+        .controls-list h3 {
+            color: #89b4fa;
+            text-align: center;
+            font-size: clamp(1.1em, 4vw, 1.5em);
+        }
+
+        .controls-list p {
+            font-size: clamp(0.9em, 2.5vw, 1em);
+            margin: 8px 0;
+        }
+
+        .button-group {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        h1 {
+            font-size: clamp(2em, 8vw, 4em);
+            margin: 0;
+            text-shadow: 0 0 20px currentColor;
+            text-align: center;
+        }
+        .win { color: #00ffaa; }
+        .lose { color: #ff0055; }
+        
+        button.restart-btn {
+            margin-top: 30px;
+            padding: 15px 40px;
+            background: transparent;
+            border: 2px solid white;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(0.9em, 3vw, 1.2em);
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            min-width: 120px;
+        }
+        button.restart-btn:hover {
+            background: white;
+            color: black;
+            box-shadow: 0 0 20px white;
+        }
+
+        /* 行動裝置優化 */
+        @media (max-width: 768px) {
+            .controls-list {
+                padding: 0 10px;
+            }
+
+            .button-group {
+                flex-direction: column;
+                width: 100%;
+                max-width: 300px;
+            }
+
+            button.restart-btn {
+                width: 100%;
+                padding: 12px 20px;
+                margin: 5px 0;
+            }
+
+            .controls-hint {
+                font-size: 12px;
+                bottom: 20px;
+                left: 20px;
+                right: 20px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #start-screen, #game-over-screen {
+                padding: 10px;
+            }
+
+            .start-content {
+                width: 95%;
+            }
+
+            .controls-list {
+                margin: 15px auto;
+            }
+
+            .controls-list p {
+                line-height: 1.6;
+                font-size: 0.9em;
+            }
+
+            .start-title {
+                margin: 10px 0;
+            }
+
+            .start-subtitle {
+                margin-bottom: 15px;
+            }
+
+            .button-group {
+                margin-top: 20px;
+            }
+
+            button.restart-btn {
+                font-size: 1em;
+                padding: 10px 15px;
+            }
+        }
+
+        /* 極小螢幕優化 */
+        @media (max-width: 360px) {
+            .controls-list h3 {
+                font-size: 1.1em;
+            }
+
+            .controls-list p {
+                font-size: 0.85em;
+            }
+        }
+
+        /* 浮動傷害數字 */
+        .damage-popup {
+            position: absolute;
+            font-weight: bold;
+            font-size: 20px;
+            animation: floatUp 0.8s forwards;
+            pointer-events: none;
+            text-shadow: 0 0 5px black;
+        }
+
+        @keyframes floatUp {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-50px) scale(1.2); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div>
+                <div style="color: #00ffaa; margin-bottom: 5px;">PLAYER 01</div>
+                <div class="bar-container">
+                    <div id="player-hp" class="hp-fill" style="background: linear-gradient(90deg, #00ffaa, #00cc88); box-shadow: 0 0 10px #00ffaa;"></div>
+                </div>
+                <div class="state-indicator" id="player-state">STATE: IDLE</div>
+                <div class="state-indicator" id="stun-cooldown" style="color: #ffff00;">STUN: READY</div>
+            </div>
+            <div style="text-align: right;">
+                <div style="color: #aa00ff; margin-bottom: 5px;">BOSS: OMEGA</div>
+                <div class="bar-container">
+                    <div id="boss-hp" class="hp-fill boss-hp-fill"></div>
+                </div>
+                <div class="state-indicator" id="boss-state">STATE: SLEEP</div>
+            </div>
+        </div>
+
+        <div class="controls-hint">
+            <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> 移動 <br>
+            <span class="key">J</span> / <span class="key">L-Click</span> 遠程射擊 (三連發)<br>
+            <span class="key">SPACE</span> / <span class="key">K</span> 衝刺 (無敵)<br>
+            <span class="key">E</span> 暈眩技能 (範圍暈眩 1秒, CD 10秒)
+        </div>
+    </div>
+
+    <div id="start-screen">
+        <div class="start-content">
+            <h1 class="start-title">NEON DUELIST</h1>
+            <p class="start-subtitle">FSM Action Demo</p>
+
+            <div class="controls-list">
+                <h3>遊戲操作</h3>
+                <p><span style="color: #00ffaa;">▸</span> <strong>WASD</strong> - 移動角色</p>
+                <p><span style="color: #00ffaa;">▸</span> <strong>J / 滑鼠左鍵</strong> - 遠程射擊 (三連發)</p>
+                <p><span style="color: #00ffaa;">▸</span> <strong>SPACE / K</strong> - 衝刺閃避 (無敵)</p>
+                <p><span style="color: #00ffaa;">▸</span> <strong>E</strong> - 暈眩技能 (範圍 1 秒, CD 10 秒)</p>
+            </div>
+
+            <div class="button-group">
+                <button class="restart-btn" onclick="game.start()">START GAME</button>
+                <button class="restart-btn" onclick="window.location.href='visualizer.html'" style="border-color: #89b4fa; color: #89b4fa;">BACK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-over-screen">
+        <div class="start-content">
+            <h1 id="end-title">GAME OVER</h1>
+            <p style="font-size: clamp(1em, 3vw, 1.2em); margin: 20px 0;">Press Restart to Play Again</p>
+            <div class="button-group">
+                <button class="restart-btn" onclick="game.reset()">RESTART SYSTEM</button>
+                <button class="restart-btn" onclick="window.location.href='visualizer.html'" style="border-color: #89b4fa; color: #89b4fa;">BACK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * NEON DUELIST - FSM Architecture Demo
+         * * 核心架構：
+         * 1. State Machine (FSM): 處理角色邏輯 (Idle -> Run -> Attack -> Dash)
+         * 2. Game Loop: 使用 requestAnimationFrame
+         * 3. Input System: 鍵盤與滑鼠監聽
+         * 4. Particle System: 視覺回饋
+         */
+
+        // --- 工具函式庫 ---
+        const MathUtils = {
+            lerp: (a, b, t) => a + (b - a) * t,
+            clamp: (num, min, max) => Math.min(Math.max(num, min), max),
+            dist: (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1),
+            rand: (min, max) => Math.random() * (max - min) + min
+        };
+
+        // --- 輸入系統 ---
+        class InputHandler {
+            constructor() {
+                this.keys = {};
+                this.mouse = { x: 0, y: 0, down: false, clicked: false };
+                
+                window.addEventListener('keydown', e => this.keys[e.code] = true);
+                window.addEventListener('keyup', e => this.keys[e.code] = false);
+                window.addEventListener('mousemove', e => {
+                    this.mouse.x = e.clientX;
+                    this.mouse.y = e.clientY;
+                });
+                window.addEventListener('mousedown', () => {
+                    this.mouse.down = true;
+                    this.mouse.clicked = true;
+                });
+                window.addEventListener('mouseup', () => this.mouse.down = false);
+            }
+
+            // 在每一幀結束時清除單次點擊狀態
+            reset() {
+                this.mouse.clicked = false;
+            }
+
+            get axis() {
+                let x = 0, y = 0;
+                if (this.keys['KeyW'] || this.keys['ArrowUp']) y = -1;
+                if (this.keys['KeyS'] || this.keys['ArrowDown']) y = 1;
+                if (this.keys['KeyA'] || this.keys['ArrowLeft']) x = -1;
+                if (this.keys['KeyD'] || this.keys['ArrowRight']) x = 1;
+                
+                // 正規化向量
+                if (x !== 0 || y !== 0) {
+                    const len = Math.sqrt(x*x + y*y);
+                    x /= len; y /= len;
+                }
+                return { x, y };
+            }
+
+            get attack() { return this.keys['KeyJ'] || this.mouse.clicked; }
+            get dash() { return this.keys['Space'] || this.keys['KeyK']; }
+            get stun() { return this.keys['KeyE']; }
+        }
+
+        // --- 視覺特效系統 ---
+        class Particle {
+            constructor(x, y, color, speed, size) {
+                this.x = x; this.y = y;
+                this.color = color;
+                this.size = size;
+                this.life = 1.0;
+                const angle = Math.random() * Math.PI * 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= 0.05;
+                this.size *= 0.95;
+            }
+            draw(ctx) {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class EffectSystem {
+            constructor() {
+                this.particles = [];
+                this.shakeTimer = 0;
+                this.texts = [];
+            }
+
+            spawn(x, y, color, count = 5) {
+                for(let i=0; i<count; i++) {
+                    this.particles.push(new Particle(x, y, color, Math.random()*5, Math.random()*5 + 2));
+                }
+            }
+
+            shake(duration) {
+                this.shakeTimer = duration;
+            }
+
+            showDamage(x, y, amount) {
+                const el = document.createElement('div');
+                el.className = 'damage-popup';
+                el.textContent = amount;
+                el.style.left = x + 'px';
+                el.style.top = y + 'px';
+                el.style.color = '#fff';
+                document.body.appendChild(el);
+                setTimeout(() => el.remove(), 800);
+            }
+
+            update(ctx) {
+                // Screen Shake
+                if (this.shakeTimer > 0) {
+                    const intensity = this.shakeTimer * 2;
+                    const dx = (Math.random() - 0.5) * intensity;
+                    const dy = (Math.random() - 0.5) * intensity;
+                    ctx.translate(dx, dy);
+                    this.shakeTimer--;
+                }
+
+                // Update Particles
+                for (let i = this.particles.length - 1; i >= 0; i--) {
+                    const p = this.particles[i];
+                    p.update();
+                    if (p.life <= 0) this.particles.splice(i, 1);
+                    else p.draw(ctx);
+                }
+            }
+        }
+
+        // --- 投射物系統 ---
+        class Projectile {
+            constructor(x, y, targetX, targetY, owner = 'player') {
+                this.x = x;
+                this.y = y;
+                this.owner = owner;
+                this.speed = 12;
+                this.radius = 5;
+                this.damage = 15;
+                this.alive = true;
+                this.color = owner === 'player' ? '#00ffaa' : '#ff0055';
+
+                // 計算方向向量
+                const dx = targetX - x;
+                const dy = targetY - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                this.vx = (dx / dist) * this.speed;
+                this.vy = (dy / dist) * this.speed;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // 邊界檢查
+                if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) {
+                    this.alive = false;
+                }
+
+                // 碰撞檢測
+                if (this.owner === 'player') {
+                    const dist = MathUtils.dist(this.x, this.y, boss.x, boss.y);
+                    if (dist < boss.radius + this.radius) {
+                        boss.takeDamage(this.damage);
+                        effects.spawn(this.x, this.y, '#fff', 8);
+                        effects.shake(2);
+                        this.alive = false;
+                    }
+                }
+            }
+
+            draw(ctx) {
+                // 發光子彈
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 拖尾效果
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(this.x - this.vx, this.y - this.vy);
+                ctx.lineTo(this.x, this.y);
+                ctx.stroke();
+
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // ==========================================
+        // 核心 FSM 類別 (Core FSM)
+        // ==========================================
+        class State {
+            constructor(name) { this.name = name; }
+            enter(entity) {}
+            update(entity) {}
+            exit(entity) {}
+            draw(entity, ctx) {}
+        }
+
+        class StateMachine {
+            constructor(owner) {
+                this.owner = owner;
+                this.currentState = null;
+            }
+            change(newState) {
+                if (this.currentState) this.currentState.exit(this.owner);
+                this.currentState = newState;
+                this.currentState.enter(this.owner);
+                
+                // UI 更新 (如果是玩家或Boss)
+                if(this.owner.onStateChange) this.owner.onStateChange(newState.name);
+            }
+            update() {
+                if (this.currentState) this.currentState.update(this.owner);
+            }
+            draw(ctx) {
+                if (this.currentState && this.currentState.draw) 
+                    this.currentState.draw(this.owner, ctx);
+            }
+        }
+
+        // ==========================================
+        // 遊戲實體 (Entities)
+        // ==========================================
+        
+        // --- 玩家類別 ---
+        class Player {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.radius = 20;
+                this.speed = 6;
+                this.hp = 100;
+                this.maxHp = 100;
+                this.facing = 1; // 1 right, -1 left
+                this.fsm = new StateMachine(this);
+                this.color = '#00ffaa';
+                this.invincible = false;
+
+                // 技能系統
+                this.stunCooldown = 0;
+                this.stunCooldownMax = 600; // 10 秒 (60fps * 10)
+
+                // 狀態初始化
+                this.fsm.change(new PlayerIdleState());
+            }
+
+            update() {
+                this.fsm.update();
+
+                // 技能冷卻更新
+                if (this.stunCooldown > 0) {
+                    this.stunCooldown--;
+                    ui.updateStunCooldown(this.stunCooldown, this.stunCooldownMax);
+                }
+
+                // 邊界限制
+                this.x = MathUtils.clamp(this.x, 20, canvas.width - 20);
+                this.y = MathUtils.clamp(this.y, 20, canvas.height - 20);
+            }
+
+            draw(ctx) {
+                // 陰影/發光效果
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                
+                // 簡單的幾何身體
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 眼睛指示方向
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x + (this.facing * 8), this.y - 5, 5, 0, Math.PI*2);
+                ctx.fill();
+
+                // 狀態特定的繪製 (如武器軌跡)
+                this.fsm.draw(ctx);
+                
+                ctx.shadowBlur = 0; // 重置
+            }
+
+            takeDamage(amount) {
+                if (this.invincible || this.hp <= 0) return;
+                this.hp -= amount;
+                effects.shake(5);
+                effects.spawn(this.x, this.y, '#ff0055', 10);
+                effects.showDamage(this.x + MathUtils.rand(-20, 20), this.y - 40, amount);
+                ui.updatePlayerHp(this.hp, this.maxHp);
+                if (this.hp <= 0) game.gameOver(false);
+            }
+        }
+
+        // --- 玩家狀態 (Player States) ---
+        
+        class PlayerIdleState extends State {
+            constructor() { super('IDLE'); }
+            update(p) {
+                const axis = input.axis;
+                if (axis.x !== 0 || axis.y !== 0) {
+                    p.fsm.change(new PlayerRunState());
+                    return;
+                }
+                if (input.attack) { p.fsm.change(new PlayerAttackState(1)); return; }
+                if (input.dash) { p.fsm.change(new PlayerDashState()); return; }
+                if (input.stun && p.stunCooldown <= 0) { p.fsm.change(new PlayerStunSkillState()); return; }
+            }
+        }
+
+        class PlayerRunState extends State {
+            constructor() { super('RUN'); }
+            update(p) {
+                const axis = input.axis;
+
+                // 移動邏輯
+                if (axis.x === 0 && axis.y === 0) {
+                    p.fsm.change(new PlayerIdleState());
+                    return;
+                }
+
+                p.x += axis.x * p.speed;
+                p.y += axis.y * p.speed;
+                if(axis.x !== 0) p.facing = axis.x > 0 ? 1 : -1;
+
+                if (input.attack) { p.fsm.change(new PlayerAttackState(1)); return; }
+                if (input.dash) { p.fsm.change(new PlayerDashState()); return; }
+                if (input.stun && p.stunCooldown <= 0) { p.fsm.change(new PlayerStunSkillState()); return; }
+            }
+        }
+
+        class PlayerDashState extends State {
+            constructor() { super('DASH'); this.timer = 0; this.dashSpeed = 15; }
+            enter(p) {
+                this.vx = (input.axis.x || p.facing) * this.dashSpeed;
+                this.vy = (input.axis.y || 0) * this.dashSpeed;
+                p.invincible = true;
+                p.color = '#fff'; // 閃白
+                effects.spawn(p.x, p.y, '#00ffaa', 3);
+            }
+            update(p) {
+                this.timer++;
+                p.x += this.vx;
+                p.y += this.vy;
+                // 產生殘影
+                if (this.timer % 3 === 0) effects.spawn(p.x, p.y, 'rgba(0,255,170,0.3)', 1);
+
+                if (this.timer > 10) p.fsm.change(new PlayerIdleState());
+            }
+            exit(p) {
+                p.invincible = false;
+                p.color = '#00ffaa';
+            }
+        }
+
+        class PlayerAttackState extends State {
+            constructor(comboIndex) {
+                super(`SHOOT ${comboIndex}`);
+                this.combo = comboIndex;
+                this.timer = 0;
+                this.duration = 10;
+                this.canCombo = false;
+                this.hasShot = false;
+            }
+            enter(p) {
+                // 發射投射物，瞄準 Boss
+                const offsetX = p.facing * 30; // 從玩家前方發射
+                const projectile = new Projectile(
+                    p.x + offsetX,
+                    p.y,
+                    boss.x,
+                    boss.y,
+                    'player'
+                );
+                projectiles.push(projectile);
+
+                // 發射特效
+                effects.spawn(p.x + offsetX, p.y, '#00ffaa', 5);
+                this.hasShot = true;
+            }
+            update(p) {
+                this.timer++;
+
+                // 連段輸入窗口（稍微延遲以避免快速連發）
+                if (this.timer > 5 && input.attack) this.canCombo = true;
+
+                if (this.timer >= this.duration) {
+                    if (this.canCombo && this.combo < 3) {
+                        p.fsm.change(new PlayerAttackState(this.combo + 1));
+                    } else {
+                        p.fsm.change(new PlayerIdleState());
+                    }
+                }
+            }
+            draw(p, ctx) {
+                // 繪製射擊效果（槍口閃光）
+                if (this.timer < 5) {
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.scale(p.facing, 1);
+                    const alpha = 1 - this.timer / 5;
+                    ctx.fillStyle = `rgba(0, 255, 170, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(25, 0, 10 + this.timer * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+            }
+        }
+
+        class PlayerStunSkillState extends State {
+            constructor() {
+                super('STUN SKILL');
+                this.timer = 0;
+                this.duration = 15;
+                this.stunRange = 150; // 暈眩範圍
+            }
+            enter(p) {
+                // 設置技能冷卻
+                p.stunCooldown = p.stunCooldownMax;
+
+                // 檢查 Boss 是否在範圍內
+                const dist = MathUtils.dist(p.x, p.y, boss.x, boss.y);
+                if (dist <= this.stunRange) {
+                    // 只有 Boss 不在暈眩狀態才能暈眩
+                    if (boss.fsm.currentState.name !== 'STUNNED') {
+                        boss.fsm.change(new BossStunnedState());
+                    }
+                }
+
+                // 特效
+                effects.spawn(p.x, p.y, '#ffff00', 30);
+                effects.shake(3);
+            }
+            update(p) {
+                this.timer++;
+                if (this.timer >= this.duration) {
+                    p.fsm.change(new PlayerIdleState());
+                }
+            }
+            draw(p, ctx) {
+                // 繪製暈眩範圍圈
+                const progress = this.timer / this.duration;
+                const alpha = 1 - progress;
+                const currentRadius = this.stunRange * progress;
+
+                ctx.strokeStyle = `rgba(255, 255, 0, ${alpha})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, currentRadius, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // 繪製閃電效果
+                if (this.timer < 8) {
+                    for (let i = 0; i < 5; i++) {
+                        const angle = (i / 5) * Math.PI * 2 + this.timer * 0.5;
+                        const x = p.x + Math.cos(angle) * 30;
+                        const y = p.y + Math.sin(angle) * 30;
+                        ctx.strokeStyle = `rgba(255, 255, 0, ${1 - this.timer / 8})`;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        // --- Boss 類別 ---
+        class Boss {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.radius = 35;
+                this.hp = 500;
+                this.maxHp = 500;
+                this.color = '#aa00ff';
+                this.fsm = new StateMachine(this);
+                this.fsm.change(new BossChaseState());
+            }
+            update() {
+                this.fsm.update();
+                // 簡易推擠碰撞 (避免重疊)
+                const dist = MathUtils.dist(this.x, this.y, player.x, player.y);
+                if (dist < this.radius + player.radius) {
+                    // 降低接觸傷害，使用計時器避免連續傷害
+                    if (!this.contactCooldown || this.contactCooldown <= 0) {
+                        player.takeDamage(3); // 從每幀 1 點改為間歇性 3 點
+                        this.contactCooldown = 30; // 30 幀冷卻（約 0.5 秒）
+                    }
+                }
+                if (this.contactCooldown > 0) this.contactCooldown--;
+
+                this.x = MathUtils.clamp(this.x, 35, canvas.width - 35);
+                this.y = MathUtils.clamp(this.y, 35, canvas.height - 35);
+            }
+            draw(ctx) {
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = this.color;
+                
+                // Boss 本體 (六邊形)
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const angle = i * Math.PI / 3;
+                    const bx = this.x + Math.cos(angle) * this.radius;
+                    const by = this.y + Math.sin(angle) * this.radius;
+                    ctx.lineTo(bx, by);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                this.fsm.draw(ctx);
+                ctx.shadowBlur = 0;
+            }
+            takeDamage(amount) {
+                this.hp -= amount;
+                effects.showDamage(this.x + MathUtils.rand(-20, 20), this.y - 40, amount);
+                ui.updateBossHp(this.hp, this.maxHp);
+                if (this.hp <= 0) game.gameOver(true);
+            }
+        }
+
+        // --- Boss 狀態 ---
+        
+        class BossChaseState extends State {
+            constructor() { super('CHASE'); this.timer = 0; }
+            update(b) {
+                this.timer++;
+                // 緩慢移動向玩家
+                const dx = player.x - b.x;
+                const dy = player.y - b.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                
+                b.x += (dx/dist) * 2.5;
+                b.y += (dy/dist) * 2.5;
+
+                // 條件轉換：每2秒或距離夠近嘗試攻擊
+                if (this.timer > 100 || dist < 120) {
+                    // 隨機選擇攻擊模式
+                    if (Math.random() > 0.5) b.fsm.change(new BossChargeState());
+                    else b.fsm.change(new BossAoEState());
+                }
+            }
+        }
+
+        class BossChargeState extends State {
+            constructor() { super('CHARGE'); this.timer = 0; }
+            enter(b) { b.color = '#ffaa00'; } // 變黃色預警
+            update(b) {
+                this.timer++;
+                // 鎖定玩家位置震動
+                b.x += Math.sin(this.timer) * 2;
+                
+                if (this.timer > 40) {
+                    b.fsm.change(new BossDashAttackState({x: player.x, y: player.y}));
+                }
+            }
+            draw(b, ctx) {
+                // 繪製瞄準線
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(b.x, b.y);
+                ctx.lineTo(player.x, player.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        class BossDashAttackState extends State {
+            constructor(targetPos) { 
+                super('SMASH'); 
+                this.target = targetPos; 
+                this.timer = 0; 
+            }
+            enter(b) { b.color = '#ff0000'; }
+            update(b) {
+                this.timer++;
+                // 快速衝刺
+                b.x = MathUtils.lerp(b.x, this.target.x, 0.2);
+                b.y = MathUtils.lerp(b.y, this.target.y, 0.2);
+                
+                // 產生傷害判定
+                if (MathUtils.dist(b.x, b.y, player.x, player.y) < b.radius + player.radius + 10) {
+                    player.takeDamage(8); // 從 20 降低到 8
+                }
+
+                if (this.timer > 20) b.fsm.change(new BossTiredState());
+            }
+        }
+
+        class BossAoEState extends State {
+            constructor() { super('BLAST'); this.timer = 0; this.radius = 0; }
+            enter(b) { b.color = '#ff0055'; }
+            update(b) {
+                this.timer++;
+                this.radius += 7.5; // 增加 1.5 倍範圍 (5 * 1.5)
+                
+                // 範圍傷害判定
+                const dist = MathUtils.dist(b.x, b.y, player.x, player.y);
+                if (dist < this.radius && dist > this.radius - 10) {
+                    player.takeDamage(7); // 從 15 降低到 7
+                }
+
+                if (this.timer > 40) b.fsm.change(new BossTiredState());
+            }
+            draw(b, ctx) {
+                ctx.strokeStyle = '#ff0055';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, this.radius, 0, Math.PI*2);
+                ctx.stroke();
+            }
+        }
+
+        class BossTiredState extends State {
+            constructor() { super('TIRED'); this.timer = 0; }
+            enter(b) { b.color = '#555'; } // 變灰，表示虛弱
+            update(b) {
+                this.timer++;
+                if (this.timer > 60) {
+                    b.color = '#aa00ff';
+                    b.fsm.change(new BossChaseState());
+                }
+            }
+        }
+
+        class BossStunnedState extends State {
+            constructor() {
+                super('STUNNED');
+                this.timer = 0;
+                this.duration = 60; // 1 秒 (60fps)
+                this.rotateAngle = 0;
+            }
+            enter(b) {
+                b.color = '#ffaa00'; // 變橘色表示被暈眩
+                // 暈眩特效
+                effects.spawn(b.x, b.y, '#ffff00', 20);
+            }
+            update(b) {
+                this.timer++;
+                this.rotateAngle += 0.2; // 旋轉角度增加
+
+                // 暈眩期間無法移動
+                if (this.timer >= this.duration) {
+                    b.color = '#aa00ff';
+                    b.fsm.change(new BossChaseState());
+                }
+            }
+            draw(b, ctx) {
+                // 繪製暈眩星星特效
+                for (let i = 0; i < 3; i++) {
+                    const angle = this.rotateAngle + (i / 3) * Math.PI * 2;
+                    const radius = 50;
+                    const x = b.x + Math.cos(angle) * radius;
+                    const y = b.y + Math.sin(angle) * radius - 20;
+
+                    // 繪製星星
+                    ctx.fillStyle = '#ffff00';
+                    ctx.beginPath();
+                    for (let j = 0; j < 5; j++) {
+                        const starAngle = (j / 5) * Math.PI * 2 - Math.PI / 2;
+                        const starRadius = j % 2 === 0 ? 8 : 4;
+                        const sx = x + Math.cos(starAngle) * starRadius;
+                        const sy = y + Math.sin(starAngle) * starRadius;
+                        if (j === 0) ctx.moveTo(sx, sy);
+                        else ctx.lineTo(sx, sy);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+        }
+
+        // ==========================================
+        // 遊戲主控 (Game Controller)
+        // ==========================================
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let player, boss, input, effects, animationId, projectiles = [];
+        
+        const ui = {
+            pState: document.getElementById('player-state'),
+            bState: document.getElementById('boss-state'),
+            pHp: document.getElementById('player-hp'),
+            bHp: document.getElementById('boss-hp'),
+            stunCd: document.getElementById('stun-cooldown'),
+            startScreen: document.getElementById('start-screen'),
+            screen: document.getElementById('game-over-screen'),
+            title: document.getElementById('end-title'),
+
+            updatePlayerHp(current, max) { this.pHp.style.width = `${(current/max)*100}%`; },
+            updateBossHp(current, max) { this.bHp.style.width = `${(current/max)*100}%`; },
+            updateStunCooldown(current, max) {
+                if (current <= 0) {
+                    this.stunCd.textContent = 'STUN: READY';
+                    this.stunCd.style.color = '#00ff00';
+                } else {
+                    const seconds = (current / 60).toFixed(1);
+                    this.stunCd.textContent = `STUN: ${seconds}s`;
+                    this.stunCd.style.color = '#888';
+                }
+            },
+            reset() {
+                this.pHp.style.width = '100%';
+                this.bHp.style.width = '100%';
+                this.stunCd.textContent = 'STUN: READY';
+                this.stunCd.style.color = '#00ff00';
+                this.screen.classList.remove('active');
+            }
+        };
+
+        const game = {
+            init() {
+                // Resize Canvas
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+
+                input = new InputHandler();
+                effects = new EffectSystem();
+
+                // 顯示開始畫面，不立即啟動遊戲
+                ui.startScreen.classList.add('active');
+
+                window.addEventListener('resize', () => {
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                });
+            },
+
+            start() {
+                // 隱藏開始畫面
+                ui.startScreen.classList.remove('active');
+
+                // 初始化遊戲並開始
+                player = new Player(200, canvas.height/2);
+                boss = new Boss(canvas.width - 200, canvas.height/2);
+                projectiles = [];
+
+                // 綁定 UI 更新回調
+                player.onStateChange = (name) => ui.pState.textContent = `STATE: ${name}`;
+                boss.onStateChange = (name) => ui.bState.textContent = `STATE: ${name}`;
+
+                ui.reset();
+                this.isRunning = true;
+                this.loop();
+            },
+
+            reset() {
+                player = new Player(200, canvas.height/2);
+                boss = new Boss(canvas.width - 200, canvas.height/2);
+                projectiles = []; // 清空投射物
+
+                // 綁定 UI 更新回調
+                player.onStateChange = (name) => ui.pState.textContent = `STATE: ${name}`;
+                boss.onStateChange = (name) => ui.bState.textContent = `STATE: ${name}`;
+
+                ui.reset();
+                if(animationId) cancelAnimationFrame(animationId);
+                this.isRunning = true;
+                this.loop();
+            },
+
+            gameOver(win) {
+                this.isRunning = false;
+                ui.screen.classList.add('active');
+                if (win) {
+                    ui.title.textContent = "TARGET ELIMINATED";
+                    ui.title.className = "win";
+                } else {
+                    ui.title.textContent = "SYSTEM FAILURE";
+                    ui.title.className = "lose";
+                }
+            },
+
+            loop() {
+                if (!this.isRunning) return;
+
+                // 1. Clear & Background
+                ctx.fillStyle = 'rgba(5, 5, 5, 0.3)'; // 殘影拖尾效果
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                // 2. Update Logic
+                ctx.save();
+                effects.update(ctx); // 處理震動
+
+                player.update();
+                boss.update();
+
+                // 更新投射物
+                for (let i = projectiles.length - 1; i >= 0; i--) {
+                    projectiles[i].update();
+                    if (!projectiles[i].alive) {
+                        projectiles.splice(i, 1);
+                    }
+                }
+
+                // 3. Draw
+                // 地板網格
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                for(let i=0; i<canvas.width; i+=50) { ctx.moveTo(i,0); ctx.lineTo(i,canvas.height); }
+                for(let i=0; i<canvas.height; i+=50) { ctx.moveTo(0,i); ctx.lineTo(canvas.width,i); }
+                ctx.stroke();
+
+                player.draw(ctx);
+                boss.draw(ctx);
+
+                // 繪製投射物
+                for (let proj of projectiles) {
+                    proj.draw(ctx);
+                }
+
+                ctx.restore();
+
+                input.reset();
+                animationId = requestAnimationFrame(() => this.loop());
+            }
+        };
+
+        // 啟動遊戲
+        game.init();
+
+    </script>
+</body>
+</html>

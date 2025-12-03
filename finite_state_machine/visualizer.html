@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FSM 視覺化教學 (怪物 AI)</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e2e; color: #fff; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; padding-bottom: 50px; }
+        h1 { margin-top: 20px; color: #a6e3a1; }
+        h2 { color: #89b4fa; margin-top: 50px; border-bottom: 2px solid #45475a; padding-bottom: 10px; }
+        h3 { color: #f9e2af; }
+
+        /* 章節容器 */
+        .section {
+            width: 90%;
+            max-width: 1000px;
+            margin: 30px 0;
+            background: #313244;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .section p {
+            line-height: 1.8;
+            color: #cdd6f4;
+            margin: 15px 0;
+        }
+
+        .section ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .section ul li {
+            margin: 10px 0;
+            padding-left: 25px;
+            position: relative;
+            line-height: 1.6;
+        }
+
+        .section ul li:before {
+            content: "▸";
+            position: absolute;
+            left: 0;
+            color: #89b4fa;
+            font-weight: bold;
+        }
+
+        /* 程式碼區塊 */
+        .code-block {
+            background: #11111b;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #89b4fa;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+
+        .code-block pre {
+            margin: 0;
+            color: #a6e3a1;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+
+        .code-comment {
+            color: #6c7086;
+        }
+
+        .keyword {
+            color: #f38ba8;
+        }
+
+        .function-name {
+            color: #89dceb;
+        }
+
+        /* 特色框 */
+        .info-box {
+            background: #181825;
+            border-left: 4px solid #f9e2af;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .info-box strong {
+            color: #f9e2af;
+        }
+
+        /* 按鈕連結 */
+        .btn-link {
+            display: inline-block;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #89b4fa, #b4befe);
+            color: #1e1e2e;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 1.1em;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 20px 10px;
+        }
+
+        .btn-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(137, 180, 250, 0.4);
+        }
+
+        /* 狀態機圖表區 */
+        .fsm-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0;
+            margin: 40px auto;
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        /* 狀態節點 */
+        .state-node {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: #313244;
+            border: 4px solid #585b70;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        .state-node strong { font-size: 1.1em; display: block; }
+        .state-node small { font-size: 0.8em; color: #bac2de; }
+
+        /* 激活狀態樣式 */
+        .state-node.active {
+            background: #f9e2af;
+            color: #1e1e2e;
+            border-color: #fab387;
+            box-shadow: 0 0 20px rgba(250, 179, 135, 0.5);
+            transform: scale(1.1);
+        }
+        .state-node.active small { color: #45475a; }
+
+        /* 連線 (簡單示意) */
+        .connector {
+            width: 50px;
+            height: 4px;
+            background: #585b70;
+            align-self: center;
+        }
+
+        /* 控制台 */
+        .controls {
+            background: #313244;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            width: 90%;
+            max-width: 700px;
+            margin: 30px auto;
+        }
+        .btn-group { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: bold;
+            background: #89b4fa;
+            color: #1e1e2e;
+            transition: background 0.2s;
+        }
+        button:hover { background: #b4befe; }
+        button:disabled { background: #45475a; color: #6c7086; cursor: not-allowed; }
+
+        .log-box {
+            background: #11111b;
+            color: #a6adc8;
+            padding: 10px;
+            border-radius: 6px;
+            height: 100px;
+            overflow-y: auto;
+            text-align: left;
+            font-family: monospace;
+            font-size: 0.9em;
+            border: 1px solid #45475a;
+        }
+        .log-entry { margin: 4px 0; border-bottom: 1px dashed #313244; }
+        .highlight { color: #f9e2af; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>🎮 有限狀態機 (FSM) 完整教學</h1>
+
+    <!-- ==================== 第 1 節：什麼是有限狀態機 FSM？ ==================== -->
+    <div class="section">
+        <h2>📚 第 1 節：什麼是有限狀態機 FSM？</h2>
+
+        <p>
+            <strong>有限狀態機（Finite State Machine, FSM）</strong>是一種計算模型，用於描述系統在不同狀態之間的轉換邏輯。
+            它在任何時刻都只處於<em>有限個狀態</em>中的<em>一個</em>，並根據<em>輸入事件</em>或<em>條件</em>切換至另一個狀態。
+        </p>
+
+        <div class="info-box">
+            <strong>💡 核心概念：</strong><br>
+            FSM 就像是一個「狀態切換器」，系統永遠只處於某一個明確的狀態，當特定條件滿足時，才會切換到下一個狀態。
+        </div>
+
+        <h3>FSM 的三大核心要素</h3>
+        <ul>
+            <li><strong>狀態（State）</strong>：系統在某一時刻的行為模式或情況（例如：待機、移動、攻擊）</li>
+            <li><strong>事件/條件（Event/Condition）</strong>：觸發狀態轉換的輸入或判斷（例如：發現敵人、到達目的地）</li>
+            <li><strong>轉換（Transition）</strong>：定義從一個狀態切換至另一個狀態的規則</li>
+        </ul>
+
+        <h3>FSM 的優點</h3>
+        <ul>
+            <li><strong>邏輯清晰</strong>：每個狀態的行為獨立，易於理解和維護</li>
+            <li><strong>可預測性高</strong>：狀態轉換規則明確，行為容易預測和除錯</li>
+            <li><strong>易於擴展</strong>：新增狀態只需定義新的轉換規則，不影響現有邏輯</li>
+            <li><strong>廣泛應用</strong>：遊戲 AI、UI 交互、協議解析、編譯器等領域都有使用</li>
+        </ul>
+
+        <h3>常見應用場景</h3>
+        <ul>
+            <li><strong>遊戲 AI</strong>：敵人的巡邏→追蹤→攻擊行為</li>
+            <li><strong>角色控制</strong>：玩家角色的待機→移動→跳躍→攻擊動作</li>
+            <li><strong>UI 狀態管理</strong>：登入頁面→載入中→已登入→錯誤提示</li>
+            <li><strong>網路協議</strong>：TCP 連線的建立→傳輸→關閉狀態</li>
+        </ul>
+    </div>
+
+    <!-- ==================== 第 2 節：FSM 核心程式碼 ==================== -->
+    <div class="section">
+        <h2>💻 第 2 節：有限狀態機核心程式碼</h2>
+
+        <p>下方展示 FSM 的基礎實作架構，包含狀態類別、狀態管理者和轉換邏輯。</p>
+
+        <h3>基礎狀態類別（State Class）</h3>
+        <div class="code-block">
+            <pre><span class="code-comment">// 基礎狀態抽象類別</span>
+<span class="keyword">class</span> <span class="function-name">State</span> {
+    <span class="function-name">enter</span>(entity) {
+        <span class="code-comment">// 進入狀態時執行一次（初始化）</span>
+    }
+
+    <span class="function-name">execute</span>(entity) {
+        <span class="code-comment">// 每幀執行（主要邏輯）</span>
+    }
+
+    <span class="function-name">exit</span>(entity) {
+        <span class="code-comment">// 離開狀態時執行一次（清理）</span>
+    }
+}</pre>
+        </div>
+
+        <h3>具體狀態實作範例</h3>
+        <div class="code-block">
+            <pre><span class="code-comment">// 巡邏狀態</span>
+<span class="keyword">class</span> <span class="function-name">PatrolState</span> <span class="keyword">extends</span> State {
+    <span class="function-name">enter</span>(monster) {
+        console.log("開始巡邏...");
+        monster.speed = 2;
+    }
+
+    <span class="function-name">execute</span>(monster) {
+        monster.patrol(); <span class="code-comment">// 執行巡邏邏輯</span>
+
+        <span class="keyword">if</span> (monster.canSeePlayer()) {
+            monster.changeState(<span class="keyword">new</span> ChaseState());
+        }
+    }
+
+    <span class="function-name">exit</span>(monster) {
+        console.log("停止巡邏");
+    }
+}</pre>
+        </div>
+
+        <h3>狀態機管理者（帶生命週期）</h3>
+        <div class="code-block">
+            <pre><span class="keyword">class</span> <span class="function-name">Monster</span> {
+    constructor() {
+        <span class="keyword">this</span>.currentState = <span class="keyword">null</span>;
+        <span class="keyword">this</span>.changeState(<span class="keyword">new</span> PatrolState()); <span class="code-comment">// 初始狀態</span>
+    }
+
+    <span class="function-name">changeState</span>(newState) {
+        <span class="keyword">if</span> (<span class="keyword">this</span>.currentState) {
+            <span class="keyword">this</span>.currentState.exit(<span class="keyword">this</span>); <span class="code-comment">// 離開舊狀態</span>
+        }
+        <span class="keyword">this</span>.currentState = newState;
+        <span class="keyword">this</span>.currentState.enter(<span class="keyword">this</span>); <span class="code-comment">// 進入新狀態</span>
+    }
+
+    <span class="function-name">update</span>() {
+        <span class="keyword">if</span> (<span class="keyword">this</span>.currentState) {
+            <span class="keyword">this</span>.currentState.execute(<span class="keyword">this</span>); <span class="code-comment">// 執行當前狀態邏輯</span>
+        }
+    }
+}</pre>
+        </div>
+
+        <div class="info-box">
+            <strong>🎯 關鍵設計：</strong><br>
+            狀態切換時會自動呼叫舊狀態的 <code>exit()</code> 和新狀態的 <code>enter()</code>，
+            確保狀態之間的過渡是乾淨且可控的。這種設計讓每個狀態都能做好初始化和清理工作。
+        </div>
+    </div>
+
+    <!-- ==================== 第 3 節：演算法視覺化演示 ==================== -->
+    <div class="section">
+        <h2>🎨 第 3 節：演算法視覺化演示</h2>
+        <p style="text-align: center; margin-bottom: 30px;">
+            情境：這是一個怪物的 AI 邏輯，展示了 <strong>巡邏 → 追蹤 → 攻擊</strong> 的狀態轉換
+        </p>
+
+    <div class="fsm-container">
+        <div id="state-patrol" class="state-node active">
+            <strong>巡邏</strong>
+            <small>Patrol</small>
+        </div>
+        <div class="connector"></div>
+        <div id="state-chase" class="state-node">
+            <strong>追蹤</strong>
+            <small>Chase</small>
+        </div>
+        <div class="connector"></div>
+        <div id="state-attack" class="state-node">
+            <strong>攻擊</strong>
+            <small>Attack</small>
+        </div>
+    </div>
+
+    <div class="controls">
+        <h3>觸發事件 (Events)</h3>
+        <div class="btn-group">
+            <button id="btn-see-player" onclick="triggerEvent('SEE_PLAYER')">👁️ 發現玩家</button>
+            <button id="btn-lost-player" onclick="triggerEvent('LOST_PLAYER')">❓ 失去蹤影</button>
+            <button id="btn-in-range" onclick="triggerEvent('IN_RANGE')">⚔️ 進入攻擊距離</button>
+            <button id="btn-out-range" onclick="triggerEvent('OUT_RANGE')">🏃 玩家逃開</button>
+        </div>
+
+        <div class="log-box" id="log-box">
+            <div class="log-entry">> 系統初始化完成，初始狀態：<span class="highlight">Patrol</span></div>
+        </div>
+    </div>
+
+    <script>
+        // 定義狀態常數
+        const STATES = {
+            PATROL: 'patrol',
+            CHASE: 'chase',
+            ATTACK: 'attack'
+        };
+
+        // 當前狀態
+        let currentState = STATES.PATROL;
+
+        // FSM 轉換規則表 (Transition Table)
+        // 格式: [當前狀態][觸發事件] = 新狀態
+        const transitions = {
+            [STATES.PATROL]: {
+                'SEE_PLAYER': STATES.CHASE
+            },
+            [STATES.CHASE]: {
+                'LOST_PLAYER': STATES.PATROL,
+                'IN_RANGE': STATES.ATTACK
+            },
+            [STATES.ATTACK]: {
+                'OUT_RANGE': STATES.CHASE,
+                'LOST_PLAYER': STATES.PATROL // 例如玩家突然傳送走
+            }
+        };
+
+        // UI 更新函式
+        function updateUI() {
+            // 更新圓圈樣式
+            document.querySelectorAll('.state-node').forEach(node => node.classList.remove('active'));
+            document.getElementById(`state-${currentState}`).classList.add('active');
+
+            // 更新按鈕狀態 (簡單的防呆)
+            const possibleEvents = transitions[currentState] || {};
+            document.getElementById('btn-see-player').disabled = !possibleEvents['SEE_PLAYER'];
+            document.getElementById('btn-lost-player').disabled = !possibleEvents['LOST_PLAYER'];
+            document.getElementById('btn-in-range').disabled = !possibleEvents['IN_RANGE'];
+            document.getElementById('btn-out-range').disabled = !possibleEvents['OUT_RANGE'];
+        }
+
+        // 觸發事件函式
+        function triggerEvent(event) {
+            const nextState = transitions[currentState][event];
+
+            if (nextState) {
+                log(`觸發事件 [${event}]: 狀態從 ${currentState.toUpperCase()} 切換至 <span class="highlight">${nextState.toUpperCase()}</span>`);
+                currentState = nextState;
+                updateUI();
+            } else {
+                log(`無效操作: 在 ${currentState} 狀態下無法觸發 ${event}`);
+            }
+        }
+
+        // 紀錄檔
+        function log(message) {
+            const box = document.getElementById('log-box');
+            box.innerHTML += `<div class="log-entry">> ${message}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // 初始化
+        updateUI();
+    </script>
+    </div>
+
+    <!-- ==================== 第 4 節：實際應用體驗 ==================== -->
+    <div class="section">
+        <h2>🎮 第 4 節：實際應用體驗</h2>
+
+        <p>
+            理論和視覺化都了解後，現在讓我們來體驗一個完整的 FSM 實戰小遊戲！
+            這個遊戲實作了一個英雄角色，擁有完整的狀態機系統：
+        </p>
+
+        <h3>遊戲特色</h3>
+        <ul>
+            <li><strong>三大狀態</strong>：待機（IDLE）、移動（MOVE）、攻擊（ATTACK）</li>
+            <li><strong>即時互動</strong>：點擊空地移動，點擊敵人攻擊</li>
+            <li><strong>狀態視覺回饋</strong>：不同狀態下角色顏色和行為都會改變</li>
+            <li><strong>完整生命週期</strong>：每個狀態都有 enter / execute / exit 的完整實作</li>
+        </ul>
+
+        <div class="info-box">
+            <strong>🎯 學習重點：</strong><br>
+            在遊戲中，觀察角色在不同操作下的狀態轉換，注意狀態顯示器的變化，
+            並思考每個狀態之間的轉換邏輯是如何設計的。
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <a href="game.html" class="btn-link" target="_blank">
+                🚀 開始遊戲體驗 →
+            </a>
+        </div>
+
+        <h3 style="margin-top: 40px;">遊戲中的 FSM 架構</h3>
+        <p>遊戲中實作的狀態轉換邏輯如下：</p>
+        <div class="code-block">
+            <pre><span class="code-comment">// 狀態轉換規則</span>
+IDLE (待機)
+  └─ 點擊空地 → MOVE (移動)
+  └─ 點擊敵人 → ATTACK (攻擊)
+
+MOVE (移動)
+  └─ 到達目的地 → IDLE (待機)
+  └─ 點擊敵人 → ATTACK (攻擊)
+
+ATTACK (攻擊)
+  └─ 攻擊完成 → IDLE (待機)</pre>
+        </div>
+
+        <p style="margin-top: 20px; color: #bac2de;">
+            💡 <strong>提示</strong>：試著在移動過程中點擊敵人，觀察狀態如何立即切換！
+            這就是 FSM 帶來的靈活性和可控性。
+        </p>
+    </div>
+
+    <footer style="text-align: center; margin: 50px 0 30px 0; color: #6c7086; font-size: 0.9em;">
+        <p>📖 有限狀態機（FSM）完整教學 | 從理論到實戰</p>
+    </footer>
+
+</body>
+</html>
