@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Abyss Mine - 結晶礦坑 (視覺優化版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #050505; 
+            font-family: 'Segoe UI', 'Roboto', sans-serif; 
+            touch-action: none; 
+            user-select: none;
+        }
+        canvas { display: block; width: 100%; height: 100vh; }
+        
+        /* UI 佈局 */
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #dcdcdc;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px #000;
+            z-index: 10;
+        }
+        
+        h1 { margin: 0; font-size: 20px; letter-spacing: 2px; color: #ffb74d; text-transform: uppercase; }
+        .score-box { font-size: 32px; font-weight: bold; color: #fff; margin-top: 5px; }
+        
+        /* 護盾條 */
+        #shield-bar-container {
+            display: none;
+            margin-top: 10px;
+            width: 200px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        #shield-bar {
+            width: 100%;
+            height: 100%;
+            background: #00e5ff;
+            transition: width 0.1s linear;
+        }
+        #shield-text {
+            display: none;
+            color: #00e5ff;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 4px;
+        }
+
+        /* 通用全螢幕遮罩 (開始/結束) */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            color: white;
+            text-align: center;
+        }
+
+        #startScreen { display: flex; }
+        #gameOver { display: none; }
+
+        .btn-main {
+            padding: 15px 40px;
+            font-size: 20px;
+            cursor: pointer;
+            background: linear-gradient(135deg, #ffb74d, #ff9800);
+            border: none;
+            color: #1a1a1a;
+            font-weight: bold;
+            letter-spacing: 1px;
+            border-radius: 4px;
+            box-shadow: 0 0 15px rgba(255, 152, 0, 0.5);
+            transition: transform 0.1s, box-shadow 0.1s;
+            margin-top: 30px;
+        }
+        .btn-main:active { transform: scale(0.95); }
+
+        .title-large {
+            font-size: 40px;
+            color: #ffb74d;
+            margin-bottom: 10px;
+            letter-spacing: 5px;
+            text-shadow: 0 0 20px rgba(255, 167, 38, 0.5);
+        }
+
+        .mobile-hint {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.3);
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h1>Abyss Mine</h1>
+        <div class="score-box">DEPTH: <span id="score">0</span>m</div>
+        
+        <div id="shield-text">SHIELD ACTIVE</div>
+        <div id="shield-bar-container">
+            <div id="shield-bar"></div>
+        </div>
+    </div>
+
+    <div id="startScreen" class="overlay">
+        <div class="title-large">ABYSS MINE</div>
+        <p>DEEP EXCAVATION PROTOCOL</p>
+        <p style="color: #888; margin-top: 20px; font-size: 14px;">閃避岩壁與紫色結晶<br>藍色能量球可提供護盾</p>
+        <button class="btn-main" onclick="initGame()">INITIALIZE SYSTEM</button>
+    </div>
+
+    <div id="gameOver" class="overlay">
+        <h2 style="color: #ff4444; font-size: 30px; margin-bottom: 10px;">SIGNAL LOST</h2>
+        <p>無人機已損毀</p>
+        <p style="font-size: 24px; margin: 20px 0;">最終深度: <span id="finalScore">0</span>m</p>
+        <button class="btn-main" onclick="resetGame()">REDEPLOY</button>
+    </div>
+
+    <div class="mobile-hint">PRESS AND HOLD TO THRUST</div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const simplex = new SimplexNoise();
+
+        // --- 遊戲參數設定 ---
+        const GAME_CONFIG = {
+            safeZoneDistance: 1500, 
+            speedBase: 6,           
+            speedIncrease: 0,       
+            gravity: 0.25,
+            lift: -0.5,
+            shieldDuration: 10000,
+            invincibleTime: 1000,
+            startDelay: 1500,       
+            
+            // 地形與生成
+            baseGapRatio: 0.75,     
+            minGapRatio: 0.35,      
+            narrowingSpeed: 0.00001,
+            
+            // 生成機率
+            itemSpawnRate: 0.005,    
+            crystalSpawnRate: 0.04   
+        };
+
+        // --- 變數 ---
+        let width, height;
+        let frame = 0;
+        let distance = 0; 
+        let isGameRunning = false; 
+        let isGameOver = false;
+        let isPressing = false;
+        let gameStartTime = 0;     
+        
+        const player = {
+            x: 100,
+            y: 0,
+            radius: 8,
+            velocity: 0,
+            hasShield: false,
+            shieldExpiry: 0,
+            isInvincible: false,
+            invincibleExpiry: 0
+        };
+
+        let items = []; 
+
+        // --- 輸入監聽 ---
+        const startPress = (e) => { 
+            if(e.type === 'touchstart') e.preventDefault();
+            if(e.code && e.code !== 'Space') return;
+            isPressing = true; 
+        };
+        const endPress = (e) => { 
+            if(e.code && e.code !== 'Space') return;
+            isPressing = false; 
+        };
+
+        window.addEventListener('mousedown', startPress);
+        window.addEventListener('mouseup', endPress);
+        window.addEventListener('touchstart', startPress, {passive: false});
+        window.addEventListener('touchend', endPress);
+        window.addEventListener('keydown', startPress);
+        window.addEventListener('keyup', endPress);
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            if(!isGameRunning && !isGameOver) player.y = height / 2;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- 遊戲流程控制 ---
+        function initGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            resetGame();
+        }
+
+        function resetGame() {
+            document.getElementById('gameOver').style.display = 'none';
+            player.y = height / 2;
+            player.velocity = 0;
+            player.hasShield = false;
+            player.isInvincible = false;
+            items = [];
+            distance = 0;
+            frame = 0;
+            isGameOver = false;
+            isGameRunning = true;
+            gameStartTime = Date.now();
+            updateShieldUI();
+            loop();
+        }
+
+        // --- 核心：地形生成 ---
+        function getTerrainHeight(worldX) {
+            let dynamicGap = height * GAME_CONFIG.baseGapRatio - (distance * GAME_CONFIG.narrowingSpeed * height);
+            dynamicGap = Math.max(height * GAME_CONFIG.minGapRatio, dynamicGap);
+
+            let centerOffset = 0;
+            let finalGap = dynamicGap;
+
+            if (worldX < GAME_CONFIG.safeZoneDistance) {
+                centerOffset = 0; 
+                finalGap = height * GAME_CONFIG.baseGapRatio; 
+            } else {
+                const blendDistance = 800;
+                let blendFactor = 1;
+                if (worldX < GAME_CONFIG.safeZoneDistance + blendDistance) {
+                     blendFactor = (worldX - GAME_CONFIG.safeZoneDistance) / blendDistance;
+                }
+                const noiseLarge = simplex.noise2D(worldX * 0.001, 0);
+                const noiseSmall = simplex.noise2D(worldX * 0.005, 100) * 0.1;
+                const combined = noiseLarge + noiseSmall;
+                centerOffset = (combined * height * 0.35) * blendFactor;
+                finalGap = dynamicGap;
+            }
+            const centerLine = (height / 2) + centerOffset;
+            return { top: centerLine - finalGap / 2, bottom: centerLine + finalGap / 2, center: centerLine };
+        }
+
+        // --- 物品生成 ---
+        function spawnItems(currentWorldX) {
+            if (currentWorldX < GAME_CONFIG.safeZoneDistance + 200) return;
+
+            if (Math.random() < GAME_CONFIG.crystalSpawnRate) {
+                const spawnX = currentWorldX + width + 50;
+                const terrain = getTerrainHeight(spawnX);
+                const isTop = Math.random() > 0.5;
+                const yPos = isTop ? terrain.top : terrain.bottom;
+                
+                items.push({
+                    x: spawnX, y: yPos, type: 'crystal', isTop: isTop, 
+                    size: 25 + Math.random() * 10 // 稍微加大尺寸
+                });
+            }
+
+            if (Math.random() < GAME_CONFIG.itemSpawnRate) {
+                const spawnX = currentWorldX + width + 100;
+                const terrain = getTerrainHeight(spawnX);
+                const spawnY = terrain.center + (Math.random() * 100 - 50);
+                items.push({ x: spawnX, y: spawnY, type: 'shield', collected: false, angle: 0 });
+            }
+        }
+
+        function updateShieldUI() {
+            const container = document.getElementById('shield-bar-container');
+            const bar = document.getElementById('shield-bar');
+            const text = document.getElementById('shield-text');
+            if (player.hasShield) {
+                const remaining = Math.max(0, player.shieldExpiry - Date.now());
+                const percent = (remaining / GAME_CONFIG.shieldDuration) * 100;
+                container.style.display = 'block'; text.style.display = 'block';
+                bar.style.width = percent + '%';
+                if (remaining <= 0) player.hasShield = false;
+            } else {
+                container.style.display = 'none'; text.style.display = 'none';
+            }
+        }
+
+        function triggerDeath() {
+            if (player.hasShield) {
+                player.hasShield = false;
+                player.isInvincible = true;
+                player.invincibleExpiry = Date.now() + GAME_CONFIG.invincibleTime;
+                player.velocity = -player.velocity * 0.8; 
+            } else if (!player.isInvincible) {
+                isGameOver = true;
+                isGameRunning = false;
+                document.getElementById('finalScore').innerText = Math.floor(distance / 10);
+                document.getElementById('gameOver').style.display = 'flex';
+            }
+        }
+
+        // --- 新增：繪製單個水晶碎片的輔助函式 ---
+        // 繪製具有通透感和稜角的單一水晶體
+        function drawCrystalShard(ctx, x, y, w, h, angle) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+
+            // 1. 核心通透感漸層 (模擬內部發光)
+            // 使用放射狀漸層，中心亮，邊緣深且透明
+            const grd = ctx.createRadialGradient(0, h*0.6, 0, 0, h*0.6, h);
+            grd.addColorStop(0, 'rgba(234, 128, 252, 0.95)'); // 核心亮粉紫
+            grd.addColorStop(0.5, 'rgba(171, 71, 188, 0.85)'); // 中間紫
+            grd.addColorStop(1, 'rgba(74, 20, 140, 0.6)');   // 邊緣深紫半透明
+
+            ctx.fillStyle = grd;
+            ctx.beginPath();
+            ctx.moveTo(0, 0); // 底部中心
+            ctx.lineTo(w / 2, h * 0.25); // 右側胖處
+            ctx.lineTo(0, h); // 尖端
+            ctx.lineTo(-w / 2, h * 0.25); // 左側胖處
+            ctx.closePath();
+            ctx.fill();
+
+            // 2. 稜角高光 (模擬光線折射)
+            // 繪製銳利的白色線條來定義晶體邊緣
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            // 中間脊線
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, h);
+            // 側面稜線
+            ctx.moveTo(0, h);
+            ctx.lineTo(w / 2, h * 0.25);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        // --- 主循環 ---
+        function loop() {
+            if (!isGameRunning) return;
+            const currentSpeed = GAME_CONFIG.speedBase; 
+            distance += currentSpeed;
+
+            // 1. 背景
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, '#1a0517'); 
+            grad.addColorStop(1, '#000000');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, width, height);
+
+            // 2. 玩家物理
+            const timeSinceStart = Date.now() - gameStartTime;
+            if (timeSinceStart < GAME_CONFIG.startDelay) {
+                const targetY = height / 2;
+                player.y += (targetY - player.y) * 0.1; 
+                player.velocity = 0;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.font = '14px monospace';
+                ctx.fillText("ENGAGING THRUSTERS...", player.x - 60, player.y - 30);
+            } else {
+                if (isPressing) player.velocity += GAME_CONFIG.lift;
+                player.velocity += GAME_CONFIG.gravity;
+                player.velocity *= 0.96;
+                player.y += player.velocity;
+            }
+            if (player.isInvincible && Date.now() > player.invincibleExpiry) {
+                player.isInvincible = false;
+            }
+
+            // 3. 地形
+            ctx.beginPath();
+            ctx.fillStyle = '#3e2723';
+            const resolution = 5;
+            let collisionDetected = false;
+            // 上岩壁
+            ctx.beginPath(); ctx.moveTo(0, 0);
+            for (let x = 0; x <= width; x += resolution) {
+                const worldX = distance + x;
+                const terrain = getTerrainHeight(worldX);
+                ctx.lineTo(x, terrain.top);
+                if (Math.abs(x - player.x) < resolution && player.y - player.radius < terrain.top) collisionDetected = true;
+            }
+            ctx.lineTo(width, 0); ctx.fill();
+            // 下岩壁
+            ctx.beginPath(); ctx.moveTo(0, height);
+            for (let x = 0; x <= width; x += resolution) {
+                const worldX = distance + x;
+                const terrain = getTerrainHeight(worldX);
+                ctx.lineTo(x, terrain.bottom);
+                 if (Math.abs(x - player.x) < resolution && player.y + player.radius > terrain.bottom) collisionDetected = true;
+            }
+            ctx.lineTo(width, height); ctx.fill();
+            // 岩壁邊緣
+            ctx.strokeStyle = '#5d4037'; ctx.lineWidth = 3; ctx.stroke();
+
+            // 4. 物品與障礙物
+            spawnItems(distance + width);
+            items = items.filter(item => {
+                const screenX = item.x - distance;
+                if (screenX < -50 || item.collected) return false;
+
+                // A. 繪製水晶 (障礙) - 使用新的繪製邏輯
+                if (item.type === 'crystal') {
+                    ctx.save();
+                    ctx.translate(screenX, item.y);
+                    if (!item.isTop) ctx.scale(1, -1); // 如果在底部，翻轉
+
+                    // 設定外發光 (Aura)
+                    ctx.shadowBlur = 25;
+                    ctx.shadowColor = '#e040fb';
+
+                    // 繪製水晶簇 (Cluster) - 由三個不同大小和角度的水晶組成
+                    // 主水晶
+                    drawCrystalShard(ctx, 0, 0, item.size, item.size * 2.2, 0);
+                    // 側面小水晶 1
+                    drawCrystalShard(ctx, -item.size/2, 0, item.size*0.6, item.size * 1.3, -0.25);
+                    // 側面小水晶 2
+                    drawCrystalShard(ctx, item.size/2, 0, item.size*0.7, item.size * 1.6, 0.15);
+
+                    ctx.restore();
+
+                    // 水晶碰撞檢測
+                    const tipY = item.isTop ? item.y + item.size*1.5 : item.y - item.size*1.5;
+                    const dx = player.x - screenX;
+                    const dy = player.y - (item.y + (item.isTop? 25 : -25));
+                    // 稍微擴大碰撞判定範圍以匹配新的視覺大小
+                    if (Math.sqrt(dx*dx + dy*dy) < player.radius + item.size * 0.8) {
+                        collisionDetected = true;
+                    }
+                }
+
+                // B. 繪製護盾 (道具)
+                if (item.type === 'shield') {
+                    item.angle += 0.05;
+                    ctx.save();
+                    ctx.translate(screenX, item.y);
+                    ctx.shadowBlur = 10; ctx.shadowColor = '#00e5ff';
+                    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.stroke();
+                    ctx.fillStyle = '#ffffff'; ctx.rotate(item.angle); ctx.fillRect(-4, -4, 8, 8);
+                    ctx.restore();
+                    const dx = player.x - screenX; const dy = player.y - item.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < player.radius + 15) {
+                        item.collected = true; player.hasShield = true;
+                        player.shieldExpiry = Date.now() + GAME_CONFIG.shieldDuration;
+                    }
+                }
+                return true;
+            });
+
+            // 5. 繪製玩家
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            // 探照燈
+            ctx.globalCompositeOperation = 'overlay';
+            const light = ctx.createRadialGradient(20, 0, 0, 100, 0, 300);
+            light.addColorStop(0, 'rgba(200, 200, 255, 0.4)');
+            light.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = light;
+            ctx.beginPath(); ctx.arc(0, 0, 300, -0.3, 0.3); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            // 本體與火焰
+            ctx.fillStyle = (player.isInvincible && Math.floor(Date.now() / 100) % 2 === 0) ? 'rgba(255, 50, 50, 0.5)' : '#fff';
+            ctx.beginPath(); ctx.arc(0, 0, player.radius, 0, Math.PI * 2); ctx.fill();
+            if(isPressing && timeSinceStart > GAME_CONFIG.startDelay) {
+                ctx.fillStyle = '#ffaa00'; ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-20, -5); ctx.lineTo(-20, 5); ctx.fill();
+            }
+            // 護盾圈
+            if (player.hasShield) {
+                ctx.beginPath(); ctx.strokeStyle = `rgba(0, 229, 255, ${Math.random() * 0.5 + 0.3})`;
+                ctx.lineWidth = 2; ctx.arc(0, 0, player.radius + 8, 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.restore();
+
+            // 6. 死亡判定
+            if (player.y < 0 || player.y > height) collisionDetected = true;
+            if (collisionDetected) triggerDeath();
+
+            updateShieldUI();
+            document.getElementById('score').innerText = Math.floor(distance / 10);
+            frame++;
+            requestAnimationFrame(loop);
+        }
+
+        resize();
+    </script>
+</body>
+</html>

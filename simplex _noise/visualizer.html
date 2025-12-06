@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simplex Noise 演算法深度解析</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --accent-color: #4CAF50;
+            --text-main: #e0e0e0;
+            --text-dim: #a0a0a0;
+            --code-bg: #2d2d2d;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        /* 佈局容器 */
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* 章節樣式 */
+        section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        h1, h2 {
+            margin-top: 0;
+            color: #fff;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: -webkit-linear-gradient(45deg, #4CAF50, #2196F3);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            border-left: 5px solid var(--accent-color);
+            padding-left: 15px;
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+        }
+
+        p { color: var(--text-dim); }
+
+        /* 程式碼區塊 */
+        pre {
+            background: var(--code-bg);
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            color: #f8f8f2;
+            font-family: 'Consolas', monospace;
+            border: 1px solid #444;
+        }
+        .code-comment { color: #6272a4; }
+        .code-keyword { color: #ff79c6; }
+        .code-func { color: #50fa7b; }
+
+        /* 視覺化 Canvas */
+        .canvas-wrapper {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        canvas {
+            background-color: #000;
+            width: 100%;
+            max-width: 500px; /* 限制最大寬度 */
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            image-rendering: pixelated; 
+        }
+
+        /* 控制面板 */
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .control-group {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        label {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            color: var(--accent-color);
+            margin-bottom: 8px;
+        }
+
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: var(--accent-color);
+        }
+
+        .explanation {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        /* 連結按鈕 */
+        .btn-link {
+            display: block;
+            width: 100%;
+            padding: 20px;
+            text-align: center;
+            background: linear-gradient(90deg, #2196F3, #21CBF3);
+            color: white;
+            text-decoration: none;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border-radius: 8px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-link:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px rgba(33, 150, 243, 0.4);
+        }
+
+        /* 手機版適配 */
+        @media (max-width: 600px) {
+            .controls { grid-template-columns: 1fr; }
+            h1 { font-size: 2rem; }
+            section { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        
+        <header>
+            <h1>Simplex Noise 實驗室</h1>
+            <p style="text-align: center;">從原理、程式碼到視覺化的完整指南</p>
+        </header>
+
+        <section id="intro">
+            <h2>1. 什麼是 Simplex Noise？</h2>
+            <p>在自然界中，幾乎沒有東西是完全隨機的（White Noise）。雲朵的形狀、山脈的起伏、大理石的紋路，它們都是連續且漸變的。</p>
+            <p><strong>Simplex Noise</strong> 是由 Ken Perlin 改良自 Perlin Noise 的一種梯度雜訊演算法。它的特點包括：</p>
+            <ul>
+                <li><strong>平滑性 (Coherence)：</strong> 數值不會劇烈跳動，而是平滑過渡。</li>
+                <li><strong>高效能：</strong> 運算複雜度為 $O(n^2)$，比傳統 Perlin Noise 更快，特別是在高維度運算中。</li>
+                <li><strong>無方格感：</strong> 使用三角形（2D）或四面體（3D）網格，減少了視覺上的棋盤格瑕疵。</li>
+            </ul>
+        </section>
+
+        <section id="code">
+            <h2>2. 核心程式碼邏輯</h2>
+            <p>單純呼叫一次 Noise 函數通常只能得到模糊的團塊。要生成細節豐富的地形，我們需要使用<strong>「碎形雜訊 (Fractal Noise)」</strong>，也就是將多層不同頻率的 Noise 疊加在一起。</p>
+            
+            <pre><code><span class="code-comment">// 虛擬碼範例：計算某個像素的高度值</span>
+<span class="code-keyword">function</span> <span class="code-func">getFractalNoise</span>(x, y) {
+    let elevation = 0;
+    let amplitude = 1;  <span class="code-comment">// 振幅（影響力）</span>
+    let frequency = 1;  <span class="code-comment">// 頻率（密集度）</span>
+
+    <span class="code-comment">// 疊加 4 層 (Octaves)</span>
+    <span class="code-keyword">for</span> (let i = 0; i < 4; i++) {
+        <span class="code-comment">// 核心：累加不同頻率的雜訊</span>
+        elevation += <span class="code-func">noise</span>(x * frequency, y * frequency) * amplitude;
+        
+        amplitude *= 0.5; <span class="code-comment">// 每一層影響力減半</span>
+        frequency *= 2;   <span class="code-comment">// 每一層細節加倍</span>
+    }
+
+    <span class="code-keyword">return</span> elevation;
+}</code></pre>
+            <p>這個技巧讓我們同時擁有了「大的山體形狀」（低頻層）和「地表的岩石細節」（高頻層）。</p>
+        </section>
+
+        <section id="demo">
+            <h2>3. 演算法視覺化演示</h2>
+            <p>拖動下方的滑桿，觀察參數如何改變地形的生成。這是一個即時渲染的 2D Simplex Noise 切片。</p>
+            
+            <div class="canvas-wrapper">
+                <canvas id="noiseCanvas" width="400" height="400"></canvas>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label>視野縮放 (Zoom) <span id="val-zoom">50</span></label>
+                    <input type="range" id="zoom" min="10" max="150" value="50">
+                    <div class="explanation">類似相機變焦。數值越大，看到的範圍越廣，地形越密集。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>細節層數 (Octaves) <span id="val-octaves">4</span></label>
+                    <input type="range" id="octaves" min="1" max="8" value="4" step="1">
+                    <div class="explanation">疊加的層數。層數越多，邊緣越毛糙，細節越豐富。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>時間流動 (Time) <span id="val-speed">1</span></label>
+                    <input type="range" id="speed" min="0" max="5" value="1" step="0.1">
+                    <div class="explanation">將時間作為 Z 軸傳入，模擬雲朵或岩漿的動態流動。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>地形對比 (Contrast) <span id="val-contrast">1</span></label>
+                    <input type="range" id="contrast" min="0.5" max="3" value="1" step="0.1">
+                    <div class="explanation">增強高低差，讓山更明顯。</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="application">
+            <h2>4. 實際應用體驗</h2>
+            <p>了解了原理，讓我們看看它在遊戲中是如何運作的。在下方的範例中，我們使用 <strong>1D Simplex Noise</strong> 來即時生成無限的洞穴地形。</p>
+            
+            <a href="game.html" class="btn-link" target="_blank">
+                🎮 啟動無限飛行遊戲 <br>
+                <span style="font-size: 0.8rem; font-weight: normal; opacity: 0.9;">(點擊開啟新分頁)</span>
+            </a>
+            <p style="text-align: center; margin-top: 10px;">
+                提示：該遊戲沒有儲存任何地圖檔，所有路徑都是由數學公式當下算出來的。
+            </p>
+        </section>
+
+    </div>
+
+    <script>
+        const canvas = document.getElementById('noiseCanvas');
+        const ctx = canvas.getContext('2d');
+        const simplex = new SimplexNoise();
+        
+        // 取得 UI 元素
+        const inputs = {
+            zoom: document.getElementById('zoom'),
+            octaves: document.getElementById('octaves'),
+            speed: document.getElementById('speed'),
+            contrast: document.getElementById('contrast')
+        };
+        
+        let time = 0;
+
+        function updateDisplay() {
+            document.getElementById('val-zoom').innerText = inputs.zoom.value;
+            document.getElementById('val-octaves').innerText = inputs.octaves.value;
+            document.getElementById('val-speed').innerText = inputs.speed.value;
+            document.getElementById('val-contrast').innerText = inputs.contrast.value;
+        }
+
+        function draw() {
+            const width = canvas.width;
+            const height = canvas.height;
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            const zoom = parseInt(inputs.zoom.value);
+            const octaves = parseInt(inputs.octaves.value);
+            const speed = parseFloat(inputs.speed.value);
+            const contrast = parseFloat(inputs.contrast.value);
+
+            // 更新時間
+            time += speed * 0.01;
+
+            // 像素處理循環
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    
+                    let noiseValue = 0;
+                    let amplitude = 1;
+                    let frequency = 1;
+                    let maxValue = 0;
+
+                    // 疊加 Octaves
+                    for(let i = 0; i < octaves; i++) {
+                        noiseValue += simplex.noise3D(
+                            (x / zoom) * frequency, 
+                            (y / zoom) * frequency, 
+                            time
+                        ) * amplitude;
+                        
+                        maxValue += amplitude;
+                        amplitude *= 0.5;
+                        frequency *= 2;
+                    }
+
+                    noiseValue = noiseValue / maxValue; // 正規化 -1 ~ 1
+
+                    // 顏色計算
+                    let colorVal = (noiseValue * contrast + 1) * 128;
+                    colorVal = Math.max(0, Math.min(255, colorVal));
+
+                    const cell = (x + y * width) * 4;
+                    
+                    // 顏色映射 (地形上色)
+                    if(colorVal < 100) { // 深水
+                        data[cell] = 10; data[cell+1] = 30 + colorVal; data[cell+2] = 100 + colorVal;
+                    } else if (colorVal < 140) { // 淺水/沙灘
+                        data[cell] = colorVal; data[cell+1] = colorVal + 20; data[cell+2] = 180;
+                    } else if (colorVal < 200) { // 草地
+                        data[cell] = 50; data[cell+1] = colorVal; data[cell+2] = 50;
+                    } else { // 雪地
+                        data[cell] = colorVal; data[cell+1] = colorVal; data[cell+2] = colorVal;
+                    }
+                    
+                    data[cell + 3] = 255; // Alpha
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            updateDisplay();
+            requestAnimationFrame(draw);
+        }
+
+        // 啟動
+        draw();
+    </script>
+</body>
+</html>
