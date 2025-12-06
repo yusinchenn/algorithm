@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOBA Lite: 戰術大師 AI 版</title>
+    <style>
+        body { 
+            margin: 0; overflow: hidden; background: #121212; 
+            font-family: 'Segoe UI', 'Roboto', monospace; color: white; user-select: none;
+        }
+        canvas { display: block; }
+        
+        #ui-layer { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            pointer-events: none; display: flex; flex-direction: column; 
+            justify-content: space-between; 
+        }
+        .top-bar { 
+            display: flex; justify-content: space-between; padding: 20px; 
+            font-size: 1.5rem; font-weight: 800; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            height: 90px; 
+            align-items: flex-start;
+        }
+        .blue-text { color: #4facfe; width: 300px; }
+        .red-text { color: #ff5e62; text-align: right; width: 300px; }
+        
+        .scoreboard {
+            display: flex; align-items: center; gap: 20px;
+            background: rgba(0,0,0,0.5); padding: 5px 25px; border-radius: 50px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .kill-count { font-size: 2.5rem; width: 40px; text-align: center; }
+        #p-kills { color: #4facfe; }
+        #e-kills { color: #ff5e62; }
+        #game-timer {
+            font-size: 2rem; color: white; font-weight: bold;
+            min-width: 80px; text-align: center;
+        }
+
+        #controls-hint { 
+            text-align: center; color: rgba(255,255,255,0.6); padding-bottom: 20px; font-size: 0.9rem;
+        }
+        .key { 
+            background: #333; padding: 2px 8px; border: 1px solid #555; border-radius: 4px; color: #eee;
+        }
+        #overlay-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; opacity: 0; 
+            pointer-events: none; transition: opacity 0.3s; z-index: 20; backdrop-filter: blur(5px);
+        }
+        #overlay-screen.active { opacity: 1; pointer-events: auto; }
+        #ai-monitor {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(0, 0, 0, 0.7); border: 1px solid #444;
+            padding: 12px; width: 220px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        #ai-action { color: #adff2f; font-weight: bold; font-size: 1.1rem; margin-top: 4px; }
+        
+        button {
+            padding: 12px 40px; font-size: 1.2rem; cursor: pointer; border: none; border-radius: 50px;
+            background: linear-gradient(45deg, #4facfe, #00f2fe); color: white; font-weight: bold;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4); transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div class="top-bar">
+        <div class="blue-text">
+            PLAYER LV.<span id="p-lv">1</span>
+            <div style="font-size: 1rem; color: #ddd;">HP: <span id="p-hp">2000</span> <span id="p-respawn"></span></div>
+        </div>
+        
+        <div class="scoreboard">
+            <div class="kill-count" id="p-kills">0</div>
+            <div id="game-timer">00:00</div>
+            <div class="kill-count" id="e-kills">0</div>
+        </div>
+
+        <div class="red-text">
+            ENEMY AI LV.<span id="e-lv">1</span>
+            <div style="font-size: 1rem; color: #ddd;">HP: <span id="e-hp">2000</span> <span id="e-respawn"></span></div>
+        </div>
+    </div>
+    <div id="controls-hint">
+        移動: <span class="key">WASD</span> | 攻擊: <span class="key">Space</span> (外塔摧毀後生成補血包)
+    </div>
+</div>
+
+<div id="ai-monitor">
+    <div style="font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 1px;">AI Strategy</div>
+    <div id="ai-action">Thinking...</div>
+</div>
+
+<div id="overlay-screen">
+    <h1 id="overlay-title" style="font-size: 4rem; margin-bottom: 20px;">GAME OVER</h1>
+    <button onclick="location.reload()">PLAY AGAIN</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+// --- 數值設定 (Config) ---
+const TEAMS = { BLUE: 'blue', RED: 'red' };
+const CFG = {
+    FPS: 60,
+    BASE_RESPAWN_TIME: 300, 
+    RESPAWN_INCREMENT: 120, 
+    WAVE_INTERVAL: 900, 
+    MELEE_RANGE: 60,
+    LANE_RATIO: 1/4,
+    
+    MINION_SPEED: 0.75, 
+    HERO_SPEED: 1.125, 
+    
+    HP: { MINION: 400, HERO: 2000, TOWER_OUTER: 6000, TOWER_MAIN: 10000 },
+    DMG: { MINION: 60, HERO_NORMAL: 150, HERO_CRIT: 350, TOWER_BASE: 100 },
+    
+    XP: { LEVEL_UP: 60, MAX_LEVEL: 15, GAIN_MINION: 10, GAIN_HERO: 30 },
+    GROWTH: { HP: 100, DMG: 50, CRIT: 0.01 },
+
+    CRIT_CHANCE: 0.1, 
+    ATK_COOLDOWN: 30, 
+    TOWER_ATK_COOLDOWN: 60, // 1秒攻擊一次
+    
+    TOWER_RAMP_UP: 20,    
+    TOWER_MAX_DMG: 1000, 
+    FOUNTAIN_HEAL: 300,
+    FOUNTAIN_INTERVAL: 30,
+
+    PACK_HEAL: 750,
+    PACK_SPAWN_TIME: 1800, // 30秒
+    
+    COMEBACK_INTERVAL: 1200 
+};
+
+// --- 行為樹系統 ---
+const BTStatus = { SUCCESS: 'SUCCESS', FAILURE: 'FAILURE', RUNNING: 'RUNNING' };
+class Node { tick(bb) { return BTStatus.SUCCESS; } }
+class Selector extends Node {
+    constructor(children) { super(); this.children = children; }
+    tick(bb) { for (let c of this.children) { if (c.tick(bb) !== BTStatus.FAILURE) return c.tick(bb); } return BTStatus.FAILURE; }
+}
+class Sequence extends Node {
+    constructor(children) { super(); this.children = children; }
+    tick(bb) { for (let c of this.children) { if (c.tick(bb) !== BTStatus.SUCCESS) return c.tick(bb); } return BTStatus.SUCCESS; }
+}
+class Condition extends Node {
+    constructor(fn) { super(); this.fn = fn; }
+    tick(bb) { return this.fn(bb) ? BTStatus.SUCCESS : BTStatus.FAILURE; }
+}
+class Action extends Node {
+    constructor(name, fn) { super(); this.name = name; this.fn = fn; }
+    tick(bb) { if(bb.log) bb.log(this.name); return this.fn(bb); }
+}
+
+// --- 實體系統 ---
+class Entity {
+    constructor(x, y, radius, team, color, maxHp) {
+        this.x = x; this.y = y; this.radius = radius;
+        this.team = team; this.color = color;
+        this.maxHp = maxHp; this.hp = maxHp;
+        this.dead = false;
+        this.respawnTimer = 0;
+        this.deathCount = 0; 
+        this.inputDir = { x: 0, y: 0 };
+    }
+
+    draw(ctx) {
+        if (this.dead) return;
+        ctx.shadowColor = this.color; ctx.shadowBlur = 10;
+        ctx.fillStyle = this.color;
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+        this.drawHpBar(ctx);
+    }
+
+    drawHpBar(ctx) {
+        const pct = Math.max(0, this.hp / this.maxHp);
+        const c = pct > 0.5 ? '#0f0' : (pct > 0.25 ? '#ff0' : '#f00');
+        const w = 50; 
+        ctx.fillStyle = '#111'; ctx.fillRect(this.x - w/2, this.y - this.radius - 12, w, 6);
+        ctx.fillStyle = c; ctx.fillRect(this.x - w/2, this.y - this.radius - 12, w * pct, 6);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(this.x - w/2, this.y - this.radius - 12, w, 6);
+    }
+
+    takeDamage(amount, isCrit = false) {
+        if (this.dead) return;
+        this.hp -= amount;
+        const color = isCrit ? '#ffD700' : '#fff';
+        const size = isCrit ? 26 : 18;
+        game.addFloatText(Math.floor(amount), this.x, this.y - this.radius, color, size, isCrit?'bold':'bold');
+        if (this.hp <= 0) {
+            this.hp = 0; 
+            this.dead = true; 
+            if (this instanceof Hero) {
+                this.deathCount++;
+                this.respawnTimer = CFG.BASE_RESPAWN_TIME + (this.deathCount - 1) * CFG.RESPAWN_INCREMENT;
+                if (this.team === TEAMS.BLUE) game.kills.red++; else game.kills.blue++;
+            }
+        }
+    }
+
+    distTo(other) { return Math.hypot(this.x - other.x, this.y - other.y); }
+    
+    applyPhysics(laneTop, laneBottom, speed) {
+        if (this.dead) return;
+        if (this.inputDir.x !== 0 || this.inputDir.y !== 0) {
+            const len = Math.hypot(this.inputDir.x, this.inputDir.y);
+            this.x += (this.inputDir.x / len) * speed;
+            this.y += (this.inputDir.y / len) * speed;
+        }
+        this.x = Math.max(this.radius, Math.min(game.width - this.radius, this.x));
+        this.y = Math.max(laneTop + this.radius, Math.min(laneBottom - this.radius, this.y));
+        this.inputDir = { x: 0, y: 0 }; 
+    }
+}
+
+class Hero extends Entity {
+    constructor(x, y, team) {
+        super(x, y, 20, team, team === TEAMS.BLUE ? '#4facfe' : '#ff5e62', CFG.HP.HERO);
+        this.attackCooldown = 0;
+        this.aggroTimer = 0; 
+        this.level = 1;
+        this.xp = 0;
+        this.baseDamage = CFG.DMG.HERO_NORMAL; 
+        this.critChance = CFG.CRIT_CHANCE; 
+    }
+
+    update() {
+        if (this.dead) {
+            this.respawnTimer--;
+            if (this.respawnTimer <= 0) this.respawn();
+            return;
+        }
+        if (this.attackCooldown > 0) this.attackCooldown--;
+        if (this.aggroTimer > 0) this.aggroTimer--;
+    }
+
+    gainXp(amount) {
+        if (this.level >= CFG.XP.MAX_LEVEL) return;
+        this.xp += amount;
+        while (this.xp >= CFG.XP.LEVEL_UP && this.level < CFG.XP.MAX_LEVEL) {
+            this.xp -= CFG.XP.LEVEL_UP;
+            this.level++;
+            this.maxHp += CFG.GROWTH.HP;
+            this.hp += CFG.GROWTH.HP; 
+            this.baseDamage += CFG.GROWTH.DMG;
+            this.critChance += CFG.GROWTH.CRIT; 
+            game.addFloatText("LEVEL UP!", this.x, this.y - 40, '#FFD700', 24, 'bold');
+            game.effects.push({ type: 'particle', x: this.x, y: this.y, vx: 0, vy: -1, life: 30, color: '#FFD700', size: 5 });
+        }
+    }
+
+    drawHpBar(ctx) {
+        const w = 50; 
+        const barX = this.x - w/2;
+        const barY = this.y - this.radius - 12;
+        const pct = Math.max(0, this.hp / this.maxHp);
+        const c = pct > 0.5 ? '#0f0' : (pct > 0.25 ? '#ff0' : '#f00');
+        ctx.fillStyle = '#111'; ctx.fillRect(barX, barY, w, 6);
+        ctx.fillStyle = c; ctx.fillRect(barX, barY, w * pct, 6);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.strokeRect(barX, barY, w, 6);
+
+        const lvRadius = 10;
+        const lvX = barX - 12;
+        const lvY = barY + 3;
+        ctx.fillStyle = '#222';
+        ctx.beginPath(); ctx.arc(lvX, lvY, lvRadius, 0, Math.PI*2); ctx.fill();
+        
+        if (this.level < CFG.XP.MAX_LEVEL) {
+            const xpPct = this.xp / CFG.XP.LEVEL_UP;
+            const endAngle = -Math.PI/2 + (Math.PI*2 * xpPct);
+            ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(lvX, lvY, lvRadius, -Math.PI/2, endAngle); ctx.stroke();
+        }
+        ctx.fillStyle = '#fff'; ctx.font = "bold 10px monospace";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(this.level, lvX, lvY + 1);
+    }
+
+    attack(targets) {
+        if (this.dead || this.attackCooldown > 0) return;
+        this.attackCooldown = CFG.ATK_COOLDOWN;
+
+        let closest = null; let minD = CFG.MELEE_RANGE + 100;
+        for (let t of targets) {
+            if (!t.dead) {
+                let d = this.distTo(t) - t.radius;
+                if (d <= CFG.MELEE_RANGE && d < minD) { minD = d; closest = t; }
+            }
+        }
+        
+        let angle = closest ? Math.atan2(closest.y - this.y, closest.x - this.x) : (this.team === TEAMS.BLUE ? 0 : Math.PI);
+        game.effects.push({ type: 'slash', x: this.x, y: this.y, angle: angle, life: 15, maxLife: 15, color: '#fff' });
+
+        if (closest) {
+            let dmg = this.baseDamage; 
+            
+            // 塔免疫爆擊
+            let isCrit = false;
+            if (!(closest instanceof Tower)) {
+                isCrit = Math.random() < this.critChance;
+            }
+            if(isCrit) dmg = Math.floor(dmg * 2.3); 
+
+            const wasDead = closest.dead;
+            closest.takeDamage(dmg, isCrit);
+            
+            if (!wasDead && closest.dead) {
+                if (closest instanceof Minion) this.gainXp(CFG.XP.GAIN_MINION);
+                if (closest instanceof Hero) this.gainXp(CFG.XP.GAIN_HERO);
+            }
+
+            for(let i=0; i<5; i++) game.effects.push({ type: 'particle', x: closest.x, y: closest.y, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5, life: 20, color: closest.color });
+            if (closest instanceof Hero) this.aggroTimer = 60; 
+        }
+    }
+
+    respawn() {
+        this.dead = false; this.hp = this.maxHp;
+        this.x = (this.team === TEAMS.BLUE) ? game.width * 0.05 : game.width * 0.95;
+        this.y = game.height / 2;
+        this.aggroTimer = 0; this.attackCooldown = 0;
+    }
+}
+
+class Minion extends Entity {
+    constructor(x, y, team, tier, hp, damage) {
+        const radius = 10 + (tier - 1) * 2;
+        super(x, y, radius, team, team === TEAMS.BLUE ? '#8ec5fc' : '#ff9a9e', hp);
+        this.tier = tier;
+        this.damage = damage;
+        this.attackCooldown = 0;
+    }
+
+    draw(ctx) {
+        if (this.dead) return;
+        ctx.shadowColor = this.color; ctx.shadowBlur = 10;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        if (this.tier === 1) { ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); }
+        else if (this.tier === 2) { ctx.rect(this.x - this.radius, this.y - this.radius, this.radius*2, this.radius*2); }
+        else if (this.tier === 3) {
+            ctx.moveTo(this.x, this.y - this.radius - 2);
+            ctx.lineTo(this.x + this.radius + 2, this.y);
+            ctx.lineTo(this.x, this.y + this.radius + 2);
+            ctx.lineTo(this.x - this.radius - 2, this.y);
+            ctx.closePath();
+            ctx.shadowBlur = 20; 
+        }
+        ctx.fill(); ctx.shadowBlur = 0;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = this.tier === 3 ? 3 : 2; ctx.stroke();
+        this.drawHpBar(ctx);
+    }
+
+    update(enemies, targetTower) {
+        if (this.dead) return;
+        if (this.attackCooldown > 0) this.attackCooldown--;
+
+        let target = null; let minD = 9999;
+        for(let e of enemies) {
+            if(e.dead) continue;
+            let d = this.distTo(e); if(d < minD) { minD = d; target = e; }
+        }
+        if(!target && targetTower && !targetTower.dead) target = targetTower;
+
+        if(target) {
+            if(this.distTo(target) <= 30) {
+                if(this.attackCooldown <= 0) {
+                    this.attackCooldown = CFG.ATK_COOLDOWN; 
+                    target.takeDamage(this.damage);
+                    game.effects.push({ type: 'particle', x: target.x, y: target.y, vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3, life: 10, color: '#fff', size: 2 });
+                }
+            } else {
+                this.inputDir.x = target.x - this.x;
+                this.inputDir.y = target.y - this.y;
+            }
+        } else {
+            this.inputDir.x = (this.team === TEAMS.BLUE ? 1 : -1);
+        }
+    }
+}
+
+class Tower extends Entity {
+    constructor(x, y, team, isMain, laneHeight) {
+        super(x, y, isMain?35:25, team, team === TEAMS.BLUE ? '#0052d4' : '#9d0208', isMain ? CFG.HP.TOWER_MAIN : CFG.HP.TOWER_OUTER);
+        this.isMain = isMain;
+        this.range = laneHeight / 2;
+        this.cooldown = 0;
+        this.lastTarget = null;
+        this.consecutiveHits = 0;
+        this.brain = this.buildBrain();
+        this.currentTarget = null;
+    }
+
+    buildBrain() {
+        const hasAggressor = new Condition((bb) => {
+            const ag = bb.enemies.find(e => !e.dead && e instanceof Hero && e.aggroTimer > 0 && this.distTo(e) <= this.range);
+            if(ag) { bb.target=ag; return true; } return false;
+        });
+        const hasMinion = new Condition((bb) => {
+            let minD = this.range; let t = null;
+            for(let e of bb.enemies) {
+                if(!e.dead && e instanceof Minion && this.distTo(e) <= this.range) {
+                    let d = this.distTo(e); if(d<minD){ minD=d; t=e; }
+                }
+            }
+            if(t){ bb.target=t; return true; } return false;
+        });
+        const hasEnemy = new Condition((bb) => {
+            let t = bb.enemies.find(e => !e.dead && this.distTo(e) <= this.range);
+            if(t){ bb.target=t; return true; } return false;
+        });
+        const attack = new Action("Attack", (bb) => {
+            this.currentTarget = bb.target; 
+            if (this.currentTarget !== this.lastTarget) { this.consecutiveHits = 0; this.lastTarget = this.currentTarget; }
+            let dmg = Math.min(CFG.TOWER_MAX_DMG, CFG.DMG.TOWER_BASE + (this.consecutiveHits * CFG.TOWER_RAMP_UP));
+            game.projectiles.push({ x: this.x, y: this.y, target: this.currentTarget, speed: 6, damage: dmg, color: this.color });
+            
+            this.consecutiveHits++; 
+            this.cooldown = CFG.TOWER_ATK_COOLDOWN; 
+            return BTStatus.SUCCESS;
+        });
+        return new Selector([new Sequence([hasAggressor, attack]), new Sequence([hasMinion, attack]), new Sequence([hasEnemy, attack])]);
+    }
+
+    update(enemies) {
+        if (this.dead) return;
+        if (this.currentTarget && (this.currentTarget.dead || this.distTo(this.currentTarget) > this.range)) {
+            this.currentTarget = null;
+        }
+
+        if (this.lastTarget && (this.lastTarget.dead || this.distTo(this.lastTarget) > this.range)) { this.lastTarget = null; this.consecutiveHits = 0; }
+        if (this.cooldown > 0) this.cooldown--;
+        if (this.cooldown <= 0) this.brain.tick({ enemies: enemies });
+    }
+
+    draw(ctx) {
+        if (this.dead) {
+            ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(this.x, this.y, 15, 0, Math.PI*2); ctx.fill();
+            return;
+        }
+
+        ctx.fillStyle = this.team === TEAMS.BLUE ? 'rgba(79, 172, 254, 0.2)' : 'rgba(255, 94, 98, 0.2)';
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.range, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = this.team === TEAMS.BLUE ? 'rgba(79, 172, 254, 0.4)' : 'rgba(255, 94, 98, 0.4)';
+        ctx.lineWidth = 1; ctx.stroke();
+
+        if (this.currentTarget && !this.currentTarget.dead) {
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.currentTarget.x, this.currentTarget.y);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = this.team === TEAMS.BLUE ? 'rgba(100, 200, 255, 0.6)' : 'rgba(255, 100, 100, 0.6)';
+            ctx.stroke();
+        }
+
+        super.draw(ctx);
+        if(this.isMain) { ctx.strokeStyle = '#ffD700'; ctx.lineWidth = 3; ctx.stroke(); }
+
+        ctx.fillStyle = '#fff'; ctx.font = "bold 14px monospace"; ctx.textAlign = "center";
+        ctx.shadowColor = "black"; ctx.shadowBlur = 4;
+        ctx.fillText(`${Math.ceil(this.hp)} / ${this.maxHp}`, this.x, this.y - this.radius - 20);
+        ctx.shadowBlur = 0;
+    }
+}
+
+class HealthPack {
+    constructor(x, y) {
+        this.x = x; this.y = y; this.radius = 15;
+    }
+    draw(ctx) {
+        // 灰色底座
+        ctx.fillStyle = 'rgba(200, 200, 200, 0.5)';
+        ctx.beginPath(); ctx.arc(this.x, this.y, 12, 0, Math.PI*2); ctx.fill();
+
+        // 綠色十字
+        ctx.fillStyle = '#00ff00';
+        ctx.shadowColor = '#00ff00'; ctx.shadowBlur = 15;
+        ctx.beginPath(); 
+        const s = 6;
+        ctx.rect(this.x - s, this.y - 15, s*2, 30);
+        ctx.rect(this.x - 15, this.y - s, 30, s*2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+}
+
+class Fountain {
+    constructor(x, y, team) {
+        this.x = x; this.y = y; this.team = team; this.radius = 60;
+        this.color = team === TEAMS.BLUE ? 'rgba(0, 100, 255, 0.15)' : 'rgba(255, 0, 0, 0.15)';
+        this.timer = 0;
+    }
+    update(allies) {
+        this.timer++;
+        if (this.timer >= CFG.FOUNTAIN_INTERVAL) {
+            for (let a of allies) {
+                if (!a.dead && a.hp < a.maxHp && this.distTo(a) <= this.radius) {
+                    a.hp = Math.min(a.maxHp, a.hp + CFG.FOUNTAIN_HEAL);
+                    game.addFloatText(`+${CFG.FOUNTAIN_HEAL}`, a.x, a.y - 30, '#0f0', 16, 'bold');
+                }
+            }
+            this.timer = 0;
+        }
+    }
+    draw(ctx) {
+        ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = this.team === TEAMS.BLUE ? '#4facfe' : '#ff5e62'; ctx.setLineDash([5, 5]); ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = "12px monospace"; ctx.textAlign = "center"; ctx.fillText("BASE", this.x, this.y + 4);
+    }
+    distTo(other) { return Math.hypot(this.x - other.x, this.y - other.y); }
+}
+
+// --- AI 邏輯 (Pro Version v3) ---
+function buildAiBrain(aiHero) {
+    const setMoveTarget = (tx, ty) => {
+        aiHero.inputDir.x = tx - aiHero.x;
+        aiHero.inputDir.y = ty - aiHero.y;
+    };
+    
+    const fountain = game.fountains[1]; 
+
+    // --- Helper Functions ---
+    // 檢查塔是否被瞄準，且塔下無己方小兵 (或小兵太少)
+    const isBeingFocusedByTower = () => {
+        const blueTowers = game.towers.filter(t => t.team === TEAMS.BLUE && !t.dead);
+        const myMinions = game.minions.filter(m => m.team === TEAMS.RED);
+        
+        for (let t of blueTowers) {
+            // 如果我被塔瞄準 且 塔的攻擊次數累積 > 2
+            if (t.currentTarget === aiHero && t.consecutiveHits > 2) {
+                // 檢查塔下有沒有己方小兵
+                const minionsUnderTower = myMinions.filter(m => t.distTo(m) <= t.range).length;
+                if (minionsUnderTower === 0) return true;
+            }
+        }
+        return false;
+    };
+
+    const isTowerUnderThreat = () => {
+        const myTowers = game.towers.filter(t => t.team === TEAMS.RED && !t.dead);
+        const enemies = [...game.minions.filter(m=>m.team===TEAMS.BLUE), game.player];
+        for (let t of myTowers) {
+            for (let e of enemies) { if (!e.dead && t.distTo(e) <= t.range) return true; }
+        }
+        return false;
+    };
+
+    const findNearestPack = () => {
+        let pack = null; let minD = 9999;
+        for(let p of game.activeHealthPacks) {
+            let d = aiHero.distTo(p); if(d < minD) { minD = d; pack = p; }
+        }
+        return pack;
+    };
+
+    // 實力評估
+    const isStrongerThanPlayer = () => {
+        const p = game.player;
+        if (p.dead) return true;
+        const aiScore = aiHero.baseDamage + aiHero.hp;
+        const pScore = p.baseDamage + p.hp;
+        return aiHero.level > p.level || aiScore > pScore * 1.1;
+    };
+
+    // --- Conditions ---
+    const isDead = new Condition(() => aiHero.dead);
+    const isCriticalHp = new Condition(() => aiHero.hp < aiHero.maxHp * 0.3); // 極限殘血
+    const needsHeal = new Condition(() => aiHero.hp < aiHero.maxHp * 0.5); // 需要補血 (降至50%)
+    const wantsPack = new Condition(() => aiHero.hp < aiHero.maxHp * 0.8); // 80%血以下就想吃補包
+    const towerThreatened = new Condition(() => isTowerUnderThreat());
+    const healthyEnough = new Condition(() => aiHero.hp > aiHero.maxHp * 0.4); 
+    const canMelee = new Condition(() => !game.player.dead && aiHero.distTo(game.player) <= CFG.MELEE_RANGE + 10);
+    const hasPack = new Condition(() => game.activeHealthPacks.length > 0);
+    const winningDuel = new Condition(() => isStrongerThanPlayer());
+    const underTowerPressure = new Condition(() => isBeingFocusedByTower());
+
+    // --- Actions ---
+    const waitRespawn = new Action("Waiting", () => BTStatus.RUNNING);
+    
+    // 強制撤退：被塔打痛了
+    const panicRetreat = new Action("Tower Aggro Retreat!", () => {
+        // 往自家溫泉撤退
+        setMoveTarget(fountain.x, fountain.y);
+        return BTStatus.RUNNING;
+    });
+
+    const retreatFountain = new Action("Retreating to Base", () => {
+        if(aiHero.distTo(fountain) < 10) {
+            if(aiHero.hp >= aiHero.maxHp) return BTStatus.FAILURE; 
+            return BTStatus.RUNNING; 
+        }
+        setMoveTarget(fountain.x, fountain.y);
+        return BTStatus.RUNNING;
+    });
+
+    const getPack = new Action("Snatching Health Pack", () => {
+        const pack = findNearestPack();
+        if (pack) { setMoveTarget(pack.x, pack.y); return BTStatus.RUNNING; }
+        return BTStatus.FAILURE;
+    });
+
+    const defendTower = new Action("Defending Tower", () => {
+        let myTowers = game.towers.filter(t => t.team === TEAMS.RED && !t.dead);
+        let targets = [...game.minions.filter(m=>m.team===TEAMS.BLUE), game.player];
+        let bestTarget = null; let minD = 9999;
+        
+        if (!game.player.dead && game.player.distTo(myTowers[0] || fountain) < 400) bestTarget = game.player;
+        
+        if (!bestTarget) {
+            for (let t of myTowers) {
+                for (let e of targets) {
+                    if(!e.dead && t.distTo(e) <= t.range) {
+                        let d = aiHero.distTo(e); if(d<minD) { minD=d; bestTarget=e; }
+                    }
+                }
+            }
+        }
+        if(bestTarget) {
+            if(aiHero.distTo(bestTarget) <= CFG.MELEE_RANGE + 10) aiHero.attack([bestTarget]);
+            else setMoveTarget(bestTarget.x, bestTarget.y);
+            return BTStatus.RUNNING;
+        }
+        return BTStatus.FAILURE;
+    });
+
+    const meleeAttack = new Action("Attacking Hero", () => { 
+        // 塔下謹慎攻擊：如果雙方都在藍方塔下，且AI血量<70%，不攻擊
+        const blueTowers = game.towers.filter(t => t.team === TEAMS.BLUE && !t.dead);
+        let inEnemyTower = false;
+        for(let t of blueTowers) {
+            if (t.distTo(aiHero) < t.range && t.distTo(game.player) < t.range) inEnemyTower = true;
+        }
+        if (inEnemyTower && aiHero.hp < aiHero.maxHp * 0.7) return BTStatus.FAILURE;
+
+        aiHero.attack([game.player]); 
+        return BTStatus.SUCCESS; 
+    });
+    
+    const aggressiveChase = new Action("Chasing", () => {
+        let pTower = game.towers.find(t => t.team === TEAMS.BLUE && !t.dead && t.distTo(game.player) < t.range);
+        
+        // 追擊限制：如果對方在塔下 或 距離太遠(3倍射程)，放棄
+        if(pTower) return BTStatus.FAILURE;
+        if(aiHero.distTo(game.player) > CFG.MELEE_RANGE * 3) return BTStatus.FAILURE;
+
+        setMoveTarget(game.player.x, game.player.y);
+        return BTStatus.RUNNING;
+    });
+
+    const siegeLogic = new Action("Siege & Farm", () => {
+        // 1. 判斷目標塔 (外塔沒死不能去主塔)
+        let targetTower = game.towers[1]; // Blue Outer
+        if (targetTower.dead) targetTower = game.towers[0]; // Blue Main
+        
+        // 2. 判斷是否可以進塔 (是否有小兵)
+        const myMinions = game.minions.filter(m => m.team === TEAMS.RED);
+        const minionsInTower = myMinions.filter(m => targetTower.distTo(m) < targetTower.range).length;
+        const enemyInTower = !game.player.dead && targetTower.distTo(game.player) < targetTower.range;
+
+        // 如果塔還活著
+        if (!targetTower.dead) {
+            const distToTower = aiHero.distTo(targetTower);
+            
+            // 情況A: 對方不在塔下 -> 準備拆塔
+            if (!enemyInTower) {
+                // 如果已經在塔範圍內，但小兵死光了 -> 撤退
+                if (distToTower < targetTower.range && minionsInTower <= 1) {
+                    // 往回走一點
+                    setMoveTarget(aiHero.x + 100, aiHero.y); 
+                    return BTStatus.RUNNING;
+                }
+                // 如果在塔外，且有小兵進去了 -> 跟進
+                if (minionsInTower > 1 || distToTower > targetTower.range + 50) {
+                    // 找最近的小兵或塔
+                    let targets = [...game.minions.filter(m=>m.team===TEAMS.BLUE), targetTower];
+                    let t = null; let minD=9999;
+                    for(let o of targets) { let d=aiHero.distTo(o); if(d<minD){ minD=d; t=o;} }
+                    
+                    if(t) {
+                        if(aiHero.distTo(t) <= CFG.MELEE_RANGE + 10) aiHero.attack([t]);
+                        else setMoveTarget(t.x, t.y);
+                        return BTStatus.RUNNING;
+                    }
+                }
+            }
+        }
+        
+        // 預設推線 (找最近小兵)
+        let targets = [...game.minions.filter(m=>m.team===TEAMS.BLUE)];
+        if(!targetTower.dead) targets.push(targetTower);
+        
+        if (targets.length > 0) {
+            let t = null; let minD=9999;
+            for(let o of targets) { let d=aiHero.distTo(o); if(d<minD){ minD=d; t=o;} }
+            if(aiHero.distTo(t) <= CFG.MELEE_RANGE + 10) aiHero.attack([t]);
+            else setMoveTarget(t.x, t.y);
+            return BTStatus.RUNNING;
+        } else {
+            // 沒兵沒塔，往中線走
+            if(Math.abs(aiHero.x - game.width/2) > 50) setMoveTarget(game.width/2, game.height/2);
+        }
+        
+        return BTStatus.RUNNING;
+    });
+
+    // --- BT Structure (Pro v3) ---
+    return new Selector([
+        new Sequence([isDead, waitRespawn]),
+        
+        // 1. 緊急撤退 (被塔打太痛)
+        new Sequence([underTowerPressure, panicRetreat]),
+
+        // 2. 極度殘血保命
+        new Sequence([isCriticalHp, 
+            new Selector([
+                new Sequence([hasPack, getPack]),
+                retreatFountain
+            ])
+        ]),
+
+        // 3. 資源爭奪 (有損血就去搶)
+        new Sequence([hasPack, wantsPack, getPack]),
+
+        // 4. 守塔
+        new Sequence([towerThreatened, healthyEnough, defendTower]), 
+
+        // 5. 戰鬥 (加入謹慎判定)
+        new Sequence([canMelee, meleeAttack]),
+        new Sequence([winningDuel, aggressiveChase]),
+
+        // 6. 狀態回復 (門檻降低至 50%)
+        new Sequence([needsHeal, retreatFountain]), 
+
+        // 7. 推進與發育 (含塔下邏輯)
+        siegeLogic
+    ]);
+}
+
+// --- 遊戲主程式 ---
+const game = {
+    canvas: document.getElementById('gameCanvas'),
+    ctx: document.getElementById('gameCanvas').getContext('2d'),
+    width: 0, height: 0, laneTop: 0, laneBottom: 0, laneHeight: 0,
+    player: null, enemy: null,
+    towers: [], minions: [], projectiles: [], effects: [], texts: [], fountains: [],
+    spawnPoints: [], activeHealthPacks: [], 
+    kills: { blue: 0, red: 0 }, 
+    keys: {}, waveTimer: 0, gameFrame: 0,
+
+    init() {
+        window.addEventListener('resize', () => this.resize()); this.resize();
+        window.addEventListener('keydown', e => this.keys[e.code] = true);
+        window.addEventListener('keyup', e => this.keys[e.code] = false);
+        this.start(); this.loop();
+    },
+
+    resize() {
+        this.width = this.canvas.width = window.innerWidth;
+        this.height = this.canvas.height = window.innerHeight;
+        this.laneHeight = this.width * CFG.LANE_RATIO; 
+        this.laneTop = (this.height - this.laneHeight) / 2;
+        this.laneBottom = this.laneTop + this.laneHeight;
+    },
+
+    start() {
+        this.resize(); const H2 = this.height / 2;
+        this.fountains = [new Fountain(this.width * 0.05, H2, TEAMS.BLUE), new Fountain(this.width * 0.95, H2, TEAMS.RED)];
+        this.player = new Hero(this.fountains[0].x, H2, TEAMS.BLUE);
+        this.enemy = new Hero(this.fountains[1].x, H2, TEAMS.RED);
+        this.aiBrain = buildAiBrain(this.enemy);
+
+        this.towers = [];
+        this.towers.push(new Tower(this.width * 0.1, H2, TEAMS.BLUE, true, this.laneHeight)); 
+        this.towers.push(new Tower(this.width * 0.25, H2, TEAMS.BLUE, false, this.laneHeight)); 
+        this.towers.push(new Tower(this.width * 0.75, H2, TEAMS.RED, false, this.laneHeight)); 
+        this.towers.push(new Tower(this.width * 0.9, H2, TEAMS.RED, true, this.laneHeight)); 
+
+        this.minions = []; this.projectiles = []; this.effects = []; this.texts = [];
+        this.spawnPoints = []; this.activeHealthPacks = [];
+        this.waveTimer = CFG.WAVE_INTERVAL - 60;
+        this.gameFrame = 0; 
+        this.kills = { blue: 0, red: 0 };
+        document.getElementById('overlay-screen').classList.remove('active');
+    },
+
+    spawnWave() {
+        this.waveTimer++;
+        if (this.waveTimer >= CFG.WAVE_INTERVAL) { 
+            const H2 = this.height / 2;
+            const seconds = this.gameFrame / 60;
+            let tier = 1, hp = CFG.HP.MINION, dmg = CFG.DMG.MINION;
+            if (seconds >= 360) { tier = 3; hp = 1000; dmg = 180; }
+            else if (seconds >= 120) { tier = 2; hp = 650; dmg = 100; }
+
+            for(let i=0; i<3; i++) {
+                setTimeout(() => { this.minions.push(new Minion(this.towers[0].x+50, H2+(Math.random()*40-20), TEAMS.BLUE, tier, hp, dmg)); }, i*500);
+                setTimeout(() => { this.minions.push(new Minion(this.towers[3].x-50, H2+(Math.random()*40-20), TEAMS.RED, tier, hp, dmg)); }, i*500);
+            }
+            this.waveTimer = 0; this.addFloatText("WAVE INCOMING", this.width/2, H2 - 100, '#0ff', 30, 'bold');
+        }
+    },
+
+    checkComebackXP() {
+        if (this.gameFrame % CFG.COMEBACK_INTERVAL === 0) {
+            const pLv = this.player.level;
+            const eLv = this.enemy.level;
+            if (eLv - pLv > 1) {
+                const bonus = 10 * (eLv - pLv - 1);
+                this.player.gainXp(bonus);
+                this.addFloatText(`+${bonus} XP (Comeback)`, this.player.x, this.player.y - 60, '#0ff', 16);
+            }
+            if (pLv - eLv > 1) {
+                const bonus = 10 * (pLv - eLv - 1);
+                this.enemy.gainXp(bonus);
+                this.addFloatText(`+${bonus} XP (Comeback)`, this.enemy.x, this.enemy.y - 60, '#0ff', 16);
+            }
+        }
+    },
+
+    update() {
+        this.gameFrame++; 
+        const totalSeconds = Math.floor(this.gameFrame / 60);
+        const mins = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+        const secs = (totalSeconds % 60).toString().padStart(2, '0');
+        document.getElementById('game-timer').innerText = `${mins}:${secs}`;
+
+        this.checkComebackXP(); 
+
+        if (this.towers[1].dead && !this.spawnPoints.find(p => p.id === 1)) {
+            this.spawnPoints.push({ id: 1, x: this.towers[1].x, y: this.towers[1].y, timer: 0 });
+        }
+        if (this.towers[2].dead && !this.spawnPoints.find(p => p.id === 2)) {
+            this.spawnPoints.push({ id: 2, x: this.towers[2].x, y: this.towers[2].y, timer: 0 });
+        }
+
+        this.spawnPoints.forEach(sp => {
+            const existing = this.activeHealthPacks.find(p => Math.hypot(p.x-sp.x, p.y-sp.y) < 5);
+            if (!existing) {
+                sp.timer++;
+                if (sp.timer >= CFG.PACK_SPAWN_TIME) {
+                    this.activeHealthPacks.push(new HealthPack(sp.x, sp.y));
+                    this.addFloatText("HEALTH PACK!", sp.x, sp.y - 20, '#0f0');
+                    sp.timer = 0;
+                }
+            }
+        });
+
+        for (let i = this.activeHealthPacks.length - 1; i >= 0; i--) {
+            const pack = this.activeHealthPacks[i];
+            let picked = false;
+            if (!this.player.dead && this.player.distTo(pack) < this.player.radius + pack.radius) {
+                this.player.hp = Math.min(this.player.maxHp, this.player.hp + CFG.PACK_HEAL);
+                this.addFloatText(`+${CFG.PACK_HEAL}`, this.player.x, this.player.y - 30, '#0f0', 20, 'bold');
+                picked = true;
+            }
+            else if (!this.enemy.dead && this.enemy.distTo(pack) < this.enemy.radius + pack.radius) {
+                this.enemy.hp = Math.min(this.enemy.maxHp, this.enemy.hp + CFG.PACK_HEAL);
+                this.addFloatText(`+${CFG.PACK_HEAL}`, this.enemy.x, this.enemy.y - 30, '#0f0', 20, 'bold');
+                picked = true;
+            }
+            if (picked) this.activeHealthPacks.splice(i, 1);
+        }
+
+        if (!this.player.dead) {
+            if (this.keys['KeyW']) this.player.inputDir.y = -1;
+            if (this.keys['KeyS']) this.player.inputDir.y = 1;
+            if (this.keys['KeyA']) this.player.inputDir.x = -1;
+            if (this.keys['KeyD']) this.player.inputDir.x = 1;
+            if (this.keys['Space']) {
+                let targets = [...this.minions.filter(m=>m.team===TEAMS.RED), this.enemy, ...this.towers.filter(t=>t.team===TEAMS.RED)];
+                this.player.attack(targets);
+            }
+        }
+
+        this.enemy.update();
+        this.aiBrain.tick({ log: (msg) => document.getElementById('ai-action').innerText = msg });
+
+        this.player.update();
+        this.player.applyPhysics(this.laneTop, this.laneBottom, CFG.HERO_SPEED);
+        this.enemy.applyPhysics(this.laneTop, this.laneBottom, CFG.HERO_SPEED);
+        this.minions.forEach(m => m.applyPhysics(this.laneTop, this.laneBottom, CFG.MINION_SPEED));
+
+        this.spawnWave();
+        this.fountains[0].update([this.player]);
+        this.fountains[1].update([this.enemy]);
+
+        this.minions.forEach(m => {
+            let enemies = (m.team === TEAMS.BLUE) ? [...this.minions.filter(x=>x.team===TEAMS.RED), this.enemy] : [...this.minions.filter(x=>x.team===TEAMS.BLUE), this.player];
+            let targetTower = this.towers.filter(t => t.team !== m.team && !t.dead).sort((a,b) => Math.abs(a.x - m.x) - Math.abs(b.x - m.x))[0];
+            m.update(enemies, targetTower);
+        });
+
+        this.towers.forEach(t => {
+            let enemies = (t.team === TEAMS.BLUE) ? [this.enemy, ...this.minions.filter(m=>m.team===TEAMS.RED)] : [this.player, ...this.minions.filter(m=>m.team===TEAMS.BLUE)];
+            t.update(enemies);
+        });
+
+        for(let i=this.projectiles.length-1; i>=0; i--) {
+            let p = this.projectiles[i];
+            if(p.target.dead) { this.projectiles.splice(i,1); continue; }
+            let angle = Math.atan2(p.target.y - p.y, p.target.x - p.x);
+            p.x += Math.cos(angle) * p.speed; p.y += Math.sin(angle) * p.speed;
+            
+            if(Math.hypot(p.x - p.target.x, p.y - p.target.y) < 10) {
+                p.target.takeDamage(p.damage);
+                this.effects.push({ type: 'particle', x: p.target.x, y: p.target.y, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5, life: 10, color: p.color });
+                this.projectiles.splice(i,1);
+            }
+        }
+
+        this.minions = this.minions.filter(m => !m.dead);
+        if(this.towers[0].dead) this.gameOver(false);
+        if(this.towers[3].dead) this.gameOver(true);
+        
+        document.getElementById('p-hp').innerText = Math.ceil(this.player.hp);
+        document.getElementById('p-lv').innerText = this.player.level;
+        document.getElementById('p-kills').innerText = this.kills.blue;
+        
+        document.getElementById('e-hp').innerText = Math.ceil(this.enemy.hp);
+        document.getElementById('e-lv').innerText = this.enemy.level;
+        document.getElementById('e-kills').innerText = this.kills.red;
+        
+        const pRes = document.getElementById('p-respawn');
+        const eRes = document.getElementById('e-respawn');
+        pRes.innerText = this.player.dead ? `(Respawn: ${Math.ceil(this.player.respawnTimer/60)})` : "";
+        eRes.innerText = this.enemy.dead ? `(Respawn: ${Math.ceil(this.enemy.respawnTimer/60)})` : "";
+    },
+
+    draw() {
+        this.ctx.fillStyle = '#121212'; this.ctx.fillRect(0, 0, this.width, this.height);
+        this.ctx.strokeStyle = '#333'; this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([10, 10]); 
+        this.ctx.beginPath(); this.ctx.moveTo(0, this.laneTop); this.ctx.lineTo(this.width, this.laneTop); this.ctx.stroke();
+        this.ctx.beginPath(); this.ctx.moveTo(0, this.laneBottom); this.ctx.lineTo(this.width, this.laneBottom); this.ctx.stroke();
+        this.ctx.setLineDash([]); 
+        this.ctx.fillStyle = '#1a1a1a'; this.ctx.fillRect(0, this.laneTop, this.width, this.laneHeight);
+
+        // Render Order: Fountains -> Towers -> HealthPacks -> Minions -> Heroes
+        this.fountains.forEach(f => f.draw(this.ctx));
+        this.towers.forEach(t => t.draw(this.ctx));
+        this.activeHealthPacks.forEach(p => p.draw(this.ctx)); 
+        this.minions.forEach(m => m.draw(this.ctx));
+        this.player.draw(this.ctx);
+        this.enemy.draw(this.ctx);
+
+        this.projectiles.forEach(p => {
+            this.ctx.fillStyle = p.color;
+            this.ctx.beginPath(); this.ctx.arc(p.x, p.y, 6, 0, Math.PI*2); this.ctx.fill();
+        });
+        
+        this.drawEffects();
+    },
+
+    drawEffects() {
+        for(let i=this.effects.length-1; i>=0; i--) {
+            let e = this.effects[i];
+            if(e.type === 'slash') {
+                this.ctx.save(); this.ctx.translate(e.x, e.y); this.ctx.rotate(e.angle);
+                const alpha = e.life / e.maxLife; const scale = 1 + (1 - alpha) * 0.5;
+                this.ctx.scale(scale, scale); this.ctx.globalAlpha = alpha;
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                this.ctx.shadowColor = e.color; this.ctx.shadowBlur = 15;
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, CFG.MELEE_RANGE, -Math.PI/3, Math.PI/3);
+                this.ctx.bezierCurveTo(20, 20, 20, -20, CFG.MELEE_RANGE * Math.cos(Math.PI/3), -CFG.MELEE_RANGE * Math.sin(Math.PI/3));
+                this.ctx.fill(); this.ctx.restore();
+            } else if (e.type === 'particle') {
+                this.ctx.globalAlpha = e.life / 20; this.ctx.fillStyle = e.color;
+                this.ctx.beginPath(); this.ctx.arc(e.x, e.y, e.size || 3, 0, Math.PI*2);
+                this.ctx.fill(); e.x += e.vx; e.y += e.vy; this.ctx.globalAlpha = 1;
+            }
+            e.life--; if(e.life <= 0) this.effects.splice(i,1);
+        }
+        this.ctx.textAlign = "center";
+        for(let i=this.texts.length-1; i>=0; i--) {
+            let t = this.texts[i]; 
+            this.ctx.font = `${t.style || 'bold'} ${t.size||20}px monospace`;
+            this.ctx.fillStyle = 'black'; this.ctx.fillText(t.text, t.x+2, t.y+2);
+            this.ctx.fillStyle = t.color; this.ctx.fillText(t.text, t.x, t.y);
+            t.y -= 1.5; t.life--; if(t.life <= 0) this.texts.splice(i,1);
+        }
+    },
+    addFloatText(text, x, y, color, size=20, style='bold') { this.texts.push({ text, x, y, color, life: 40, size, style }); },
+    gameOver(win) { document.getElementById('overlay-screen').classList.add('active'); document.getElementById('overlay-title').innerText = win ? "VICTORY" : "DEFEAT"; },
+    loop() { this.update(); this.draw(); requestAnimationFrame(() => this.loop()); }
+};
+
+window.onload = () => game.init();
+</script>
+</body>
+</html>
