@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>碰撞偵測演算法全解 (Collision Detection)</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-color: #00d2ff;
+            --code-bg: #2d2d2d;
+            --border-color: #333;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        /* Layout */
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        section {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            border: 1px solid var(--border-color);
+        }
+
+        h1, h2, h3 { color: var(--accent-color); margin-top: 0; }
+        h1 { text-align: center; margin-bottom: 30px; font-size: 2.2rem; }
+        h2 { border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 20px; }
+
+        /* Section 1: Theory Table */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #444; }
+        th { color: var(--accent-color); }
+        tr:last-child td { border-bottom: none; }
+        
+        /* Section 2: Code Blocks */
+        pre {
+            background: var(--code-bg);
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            border-left: 4px solid var(--accent-color);
+        }
+        .keyword { color: #ff79c6; }
+        .func { color: #50fa7b; }
+        .comment { color: #6272a4; }
+
+        /* Section 3: Visualizer Controls */
+        .controls {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        button {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+        
+        button:hover { background: #444; }
+        button.active { background: var(--accent-color); color: #000; border-color: var(--accent-color); font-weight: bold; }
+
+        /* Canvas Container for Responsiveness */
+        .canvas-container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        canvas {
+            background: #000;
+            border-radius: 8px;
+            max-width: 100%;
+            height: auto; /* Maintain aspect ratio */
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.1);
+            touch-action: none; /* Prevent scrolling when dragging on mobile */
+        }
+
+        .status {
+            margin-top: 10px;
+            font-weight: bold;
+            text-align: center;
+            padding: 10px;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .safe { background: rgba(0, 204, 102, 0.2); color: #00cc66; }
+        .collision { background: rgba(255, 68, 68, 0.2); color: #ff4444; }
+
+        /* Section 4: Game Link */
+        .game-link-card {
+            text-align: center;
+            background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%);
+        }
+        .btn-large {
+            display: inline-block;
+            background: var(--accent-color);
+            color: #000;
+            text-decoration: none;
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-top: 15px;
+            box-shadow: 0 4px 15px rgba(0, 210, 255, 0.4);
+            transition: transform 0.2s;
+        }
+        .btn-large:hover { transform: scale(1.05); }
+
+        /* Responsive Tweaks */
+        @media (max-width: 600px) {
+            h1 { font-size: 1.5rem; }
+            th, td { font-size: 0.85rem; padding: 8px; }
+            .controls button { flex: 1 1 40%; font-size: 0.8rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>碰撞偵測演算法全解</h1>
+
+    <section id="theory">
+        <h2>1. 什麼是碰撞偵測？</h2>
+        <p>在遊戲開發與物理模擬中，我們需要判斷兩個物體是否接觸。為了效能，我們通常使用簡化的幾何圖形（包圍體）來代替複雜的模型。</p>
+        
+        <h3>常見類型比較</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>演算法</th>
+                    <th>全名</th>
+                    <th>特點</th>
+                    <th>適用場景</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>AABB</strong></td>
+                    <td>軸對齊包圍盒</td>
+                    <td>速度最快，不支援旋轉</td>
+                    <td>UI、廣播階段篩選</td>
+                </tr>
+                <tr>
+                    <td><strong>Circle</strong></td>
+                    <td>圓形碰撞</td>
+                    <td>基於距離，旋轉無影響</td>
+                    <td>角色、拾取物、爆炸</td>
+                </tr>
+                <tr>
+                    <td><strong>OBB</strong></td>
+                    <td>方向性包圍盒</td>
+                    <td>可旋轉的矩形</td>
+                    <td>車輛、飛機、長條物</td>
+                </tr>
+                <tr>
+                    <td><strong>SAT</strong></td>
+                    <td>分離軸定理</td>
+                    <td>數學精確，適用凸多邊形</td>
+                    <td>精確物理、格鬥判定</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section id="code">
+        <h2>2. 核心程式碼邏輯</h2>
+        <p>以下是 JavaScript 中實作這些演算法的精簡邏輯：</p>
+
+        <h3>AABB (矩形 vs 矩形)</h3>
+        <pre><code><span class="keyword">function</span> <span class="func">checkAABB</span>(a, b) {
+    <span class="comment">// 檢查四個邊是否「沒有」重疊</span>
+    <span class="keyword">return</span> (a.minX < b.maxX &&
+            a.maxX > b.minX &&
+            a.minY < b.maxY &&
+            a.maxY > b.minY);
+}</code></pre>
+
+        <h3>Circle (圓 vs 圓)</h3>
+        <pre><code><span class="keyword">function</span> <span class="func">checkCircle</span>(a, b) {
+    <span class="keyword">const</span> dx = a.x - b.x;
+    <span class="keyword">const</span> dy = a.y - b.y;
+    <span class="keyword">const</span> distSq = dx*dx + dy*dy; <span class="comment">// 使用距離平方避免開根號</span>
+    <span class="keyword">const</span> rSum = a.r + b.r;
+    <span class="keyword">return</span> distSq < (rSum * rSum);
+}</code></pre>
+
+        <h3>SAT (分離軸定理 - 概念版)</h3>
+        <pre><code><span class="keyword">function</span> <span class="func">checkSAT</span>(polyA, polyB) {
+    <span class="comment">// 1. 取得兩個多邊形所有的法向量(軸)</span>
+    <span class="keyword">const</span> axes = getAxes(polyA).concat(getAxes(polyB));
+    
+    <span class="keyword">for</span> (<span class="keyword">let</span> axis <span class="keyword">of</span> axes) {
+        <span class="comment">// 2. 將多邊形投影到軸上</span>
+        <span class="keyword">const</span> p1 = project(polyA, axis);
+        <span class="keyword">const</span> p2 = project(polyB, axis);
+        
+        <span class="comment">// 3. 如果在任何一個軸上沒有重疊，則保證無碰撞</span>
+        <span class="keyword">if</span> (!overlap(p1, p2)) <span class="keyword">return false</span>;
+    }
+    <span class="keyword">return true</span>; <span class="comment">// 所有軸都重疊</span>
+}</code></pre>
+    </section>
+
+    <section id="demo">
+        <h2>3. 演算法視覺化演示</h2>
+        <p style="text-align:center; font-size:0.9rem; color:#aaa;">點擊下方按鈕切換模式，並拖曳 <strong style="color:#00cc66">綠色圖形</strong> 進行測試</p>
+        
+        <div class="controls">
+            <button onclick="setMode('aabb')" id="btn-aabb" class="active">AABB</button>
+            <button onclick="setMode('circle')" id="btn-circle">Circle</button>
+            <button onclick="setMode('obb')" id="btn-obb">OBB</button>
+            <button onclick="setMode('sat')" id="btn-sat">SAT</button>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="canvas" width="600" height="400"></canvas>
+            <div id="status" class="status safe">等待檢測...</div>
+        </div>
+    </section>
+
+    <section id="game" class="game-link-card">
+        <h2>4. 實際應用體驗</h2>
+        <p>理論學完了，來看看實際遊戲中如何應用這些技術。</p>
+        <p>這是一個混合使用 <strong>Circle vs AABB</strong> 的生存小遊戲。</p>
+        <a href="game.html" class="btn-large">開始遊戲 (Start Game)</a>
+    </section>
+</div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+    
+    let mode = 'aabb';
+    let isDragging = false;
+    let dragOffset = { x: 0, y: 0 };
+    let time = 0;
+
+    // 定義物體
+    let target = { x: 300, y: 200, w: 100, h: 80, r: 50, angle: 0 };
+    let player = { x: 100, y: 100, w: 80, h: 60, r: 30, angle: 0 };
+
+    // --- 事件監聽 (支援滑鼠與觸控) ---
+    function getPointerPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        // 處理 Canvas CSS 縮放導致的座標偏移
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+            x: (clientX - rect.left) * scaleX,
+            y: (clientY - rect.top) * scaleY
+        };
+    }
+
+    function startDrag(e) {
+        const pos = getPointerPos(e);
+        const dist = Math.hypot(pos.x - player.x, pos.y - player.y);
+        if (dist < 60) {
+            isDragging = true;
+            dragOffset.x = pos.x - player.x;
+            dragOffset.y = pos.y - player.y;
+            if(e.type === 'touchstart') e.preventDefault();
+        }
+    }
+
+    function moveDrag(e) {
+        if (isDragging) {
+            const pos = getPointerPos(e);
+            player.x = pos.x - dragOffset.x;
+            player.y = pos.y - dragOffset.y;
+            if(e.type === 'touchmove') e.preventDefault();
+        }
+    }
+
+    function endDrag() { isDragging = false; }
+
+    canvas.addEventListener('mousedown', startDrag);
+    canvas.addEventListener('mousemove', moveDrag);
+    window.addEventListener('mouseup', endDrag);
+    
+    // Touch events for mobile
+    canvas.addEventListener('touchstart', startDrag, {passive: false});
+    canvas.addEventListener('touchmove', moveDrag, {passive: false});
+    window.addEventListener('touchend', endDrag);
+
+    // 切換模式
+    window.setMode = function(m) {
+        mode = m;
+        document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+        document.getElementById(`btn-${m}`).classList.add('active');
+    }
+
+    // --- 演算法實作 ---
+    
+    // 1. AABB
+    function checkAABB(a, b) {
+        // 將中心點轉換為左上角以符合 AABB 定義
+        let aMinX = a.x - a.w/2, aMaxX = a.x + a.w/2;
+        let aMinY = a.y - a.h/2, aMaxY = a.y + a.h/2;
+        let bMinX = b.x - b.w/2, bMaxX = b.x + b.w/2;
+        let bMinY = b.y - b.h/2, bMaxY = b.y + b.h/2;
+
+        return (aMinX < bMaxX && aMaxX > bMinX && aMinY < bMaxY && aMaxY > bMinY);
+    }
+
+    // 2. Circle
+    function checkCircle(a, b) {
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        return (dx*dx + dy*dy) < ((a.r + b.r)**2);
+    }
+
+    // 3. SAT Helpers
+    function getPolyVerts(obj, shapeType) {
+        let verts = [];
+        if (shapeType === 'rect') {
+            let hw = obj.w/2, hh = obj.h/2;
+            let corners = [{x:-hw, y:-hh}, {x:hw, y:-hh}, {x:hw, y:hh}, {x:-hw, y:hh}];
+            corners.forEach(p => {
+                verts.push({
+                    x: obj.x + (p.x * Math.cos(obj.angle) - p.y * Math.sin(obj.angle)),
+                    y: obj.y + (p.x * Math.sin(obj.angle) + p.y * Math.cos(obj.angle))
+                });
+            });
+        } else if (shapeType === 'tri') {
+             for(let i=0; i<3; i++) {
+                let a = obj.angle + (i * Math.PI * 2 / 3);
+                verts.push({ x: obj.x + Math.cos(a) * obj.r, y: obj.y + Math.sin(a) * obj.r });
+            }
+        }
+        return verts;
+    }
+
+    function checkSAT(vertsA, vertsB) {
+        let polys = [vertsA, vertsB];
+        for (let poly of polys) {
+            for (let i = 0; i < poly.length; i++) {
+                let p1 = poly[i];
+                let p2 = poly[(i + 1) % poly.length];
+                let normal = { x: -(p2.y - p1.y), y: p2.x - p1.x }; // 法向量
+                
+                // 投影
+                let minA = Infinity, maxA = -Infinity;
+                for (let p of vertsA) {
+                    let proj = p.x * normal.x + p.y * normal.y;
+                    minA = Math.min(minA, proj);
+                    maxA = Math.max(maxA, proj);
+                }
+                let minB = Infinity, maxB = -Infinity;
+                for (let p of vertsB) {
+                    let proj = p.x * normal.x + p.y * normal.y;
+                    minB = Math.min(minB, proj);
+                    maxB = Math.max(maxB, proj);
+                }
+                if (maxA < minB || maxB < minA) return false; // 分離
+            }
+        }
+        return true;
+    }
+
+    // --- 主循環 ---
+    function loop() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 動畫
+        time += 0.01;
+        if(mode === 'obb' || mode === 'sat') target.angle = time;
+        if(mode === 'sat') player.angle = -time * 0.5;
+
+        let hit = false;
+        
+        // 根據模式繪製
+        if (mode === 'aabb') {
+            hit = checkAABB(player, target);
+            drawRect(target, hit, false);
+            drawRect(player, hit, false);
+        } else if (mode === 'circle') {
+            hit = checkCircle(player, target);
+            drawCircle(target, hit);
+            drawCircle(player, hit);
+        } else if (mode === 'obb') {
+            let vA = getPolyVerts(player, 'rect');
+            let vB = getPolyVerts(target, 'rect');
+            hit = checkSAT(vA, vB);
+            drawPoly(vB, hit);
+            drawPoly(vA, hit);
+        } else if (mode === 'sat') {
+            let vA = getPolyVerts(player, 'tri'); // Player 是三角形
+            let vB = getPolyVerts(target, 'rect'); // Target 是矩形
+            hit = checkSAT(vA, vB);
+            drawPoly(vB, hit);
+            drawPoly(vA, hit);
+        }
+
+        // 更新 UI
+        if(hit) {
+            statusEl.innerText = "💥 COLLISION DETECTED";
+            statusEl.className = "status collision";
+        } else {
+            statusEl.innerText = "✅ SAFE";
+            statusEl.className = "status safe";
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    // 繪圖輔助
+    function drawRect(obj, hit, rotate) {
+        ctx.save();
+        ctx.translate(obj.x, obj.y);
+        if(rotate) ctx.rotate(obj.angle);
+        ctx.strokeStyle = hit ? '#ff4444' : '#00cc66';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-obj.w/2, -obj.h/2, obj.w, obj.h);
+        ctx.restore();
+    }
+    
+    function drawCircle(obj, hit) {
+        ctx.beginPath();
+        ctx.arc(obj.x, obj.y, obj.r, 0, Math.PI*2);
+        ctx.strokeStyle = hit ? '#ff4444' : '#00cc66';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    function drawPoly(verts, hit) {
+        ctx.beginPath();
+        ctx.moveTo(verts[0].x, verts[0].y);
+        for(let i=1; i<verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+        ctx.closePath();
+        ctx.strokeStyle = hit ? '#ff4444' : '#00cc66';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    loop();
+</script>
+
+</body>
+</html>

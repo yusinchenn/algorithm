@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Survival: Circle vs AABB</title>
+    <style>
+        :root {
+            --primary: #00d2ff;
+            --danger: #ff4444;
+            --warning: #ffcc00;
+            --bg: #111;
+        }
+        body { margin: 0; overflow: hidden; background: var(--bg); font-family: 'Segoe UI', monospace; color: white; user-select: none; -webkit-user-select: none; }
+        canvas { display: block; }
+        
+        /* UI 容器 */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        /* HUD (遊戲中介面) */
+        .hud { position: absolute; padding: 20px; font-size: 20px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.5); display: none; width: 100%; box-sizing: border-box; justify-content: space-between; top: 0; }
+        .hud-left { display: flex; flex-direction: column; gap: 5px; }
+        .hud-right { text-align: right; }
+        .hearts { color: var(--danger); font-size: 24px; }
+        
+        /* 覆蓋層 (開始/結束畫面) */
+        .overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(20, 20, 20, 0.9); border: 2px solid rgba(255, 255, 255, 0.1);
+            padding: 40px; text-align: center; border-radius: 16px;
+            backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            pointer-events: auto; display: none; min-width: 300px;
+        }
+
+        h1 { margin: 0 0 10px 0; font-size: 32px; color: var(--primary); text-transform: uppercase; letter-spacing: 2px; }
+        h2 { margin: 0 0 20px 0; font-size: 48px; color: var(--danger); }
+        p { color: #aaa; margin-bottom: 30px; line-height: 1.6; }
+        
+        .stats-row { display: flex; justify-content: space-around; margin-bottom: 25px; border-top: 1px solid #333; border-bottom: 1px solid #333; padding: 15px 0; }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-val { font-size: 24px; color: white; font-weight: bold; }
+        .stat-label { font-size: 12px; color: #888; text-transform: uppercase; }
+
+        button {
+            background: var(--primary); color: #000; border: none;
+            padding: 12px 32px; font-size: 18px; font-weight: bold; border-radius: 50px;
+            cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover { transform: scale(1.05); box-shadow: 0 0 15px rgba(0, 210, 255, 0.4); }
+        button:active { transform: scale(0.95); }
+
+        /* 動畫類 */
+        .shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-2px, 0, 0); }
+            20%, 80% { transform: translate3d(4px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+            40%, 60% { transform: translate3d(8px, 0, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        
+        <div id="hud" class="hud">
+            <div class="hud-left">
+                <div id="lives-display" class="hearts">❤❤❤</div>
+                <div style="font-size: 14px; opacity: 0.7;">TIME: <span id="time-display">00:00</span></div>
+            </div>
+            <div class="hud-right">
+                <div>SCORE: <span id="score-display">0</span></div>
+            </div>
+        </div>
+
+        <div id="start-screen" class="overlay" style="display: block;">
+            <h1>Survival Protocol</h1>
+            <p>移動滑鼠/手指控制藍色核心<br>躲避 <span style="color:var(--danger)">紅色方塊</span> | 收集 <span style="color:var(--warning)">黃色能量</span></p>
+            <button onclick="startGame()">START MISSION</button>
+        </div>
+
+        <div id="game-over-screen" class="overlay">
+            <h2>MISSION FAILED</h2>
+            <div class="stats-row">
+                <div class="stat-item">
+                    <span class="stat-val" id="final-score">0</span>
+                    <span class="stat-label">Score</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-val" id="final-time">00:00</span>
+                    <span class="stat-label">Survival Time</span>
+                </div>
+            </div>
+            <button onclick="startGame()">RETRY</button>
+        </div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // UI 元素
+    const hud = document.getElementById('hud');
+    const startScreen = document.getElementById('start-screen');
+    const gameOverScreen = document.getElementById('game-over-screen');
+    const scoreDisplay = document.getElementById('score-display');
+    const timeDisplay = document.getElementById('time-display');
+    const livesDisplay = document.getElementById('lives-display');
+    
+    // 系統變數
+    let gameState = 'START'; // START, PLAYING, GAMEOVER
+    let animationId;
+    let width, height;
+    
+    // 遊戲數據
+    let score = 0;
+    let startTime = 0;
+    let lives = 3;
+    let frameCount = 0;
+    
+    // 震動效果
+    let shakeDuration = 0;
+    
+    // 玩家
+    const player = {
+        x: 0, y: 0, r: 15, 
+        invulnerable: false,
+        invulnerableEnd: 0
+    };
+    
+    // 輸入控制
+    let mouse = { x: 0, y: 0 };
+    
+    // 物件池
+    let enemies = [];
+    let coins = [];
+
+    // --- 初始化與事件 ---
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        if(gameState === 'START') {
+            player.x = width/2;
+            player.y = height/2;
+            mouse.x = width/2;
+            mouse.y = height/2;
+            draw(); // 重繪背景
+        }
+    }
+    window.addEventListener('resize', resize);
+    
+    // 滑鼠/觸控事件
+    window.addEventListener('mousemove', e => {
+        mouse.x = e.clientX;
+        mouse.y = e.clientY;
+    });
+    
+    window.addEventListener('touchmove', e => {
+        e.preventDefault();
+        mouse.x = e.touches[0].clientX;
+        mouse.y = e.touches[0].clientY;
+    }, {passive: false});
+
+    window.addEventListener('touchstart', e => {
+        mouse.x = e.touches[0].clientX;
+        mouse.y = e.touches[0].clientY;
+    }, {passive: false});
+
+    // --- 遊戲流程控制 ---
+
+    function startGame() {
+        // 重置數據
+        score = 0;
+        lives = 3;
+        frameCount = 0;
+        enemies = [];
+        coins = [];
+        player.invulnerable = false;
+        
+        // 設定時間
+        startTime = Date.now();
+        
+        // 重置位置
+        player.x = width / 2;
+        player.y = height / 2;
+        mouse.x = width / 2;
+        mouse.y = height / 2;
+
+        // UI 切換
+        gameState = 'PLAYING';
+        startScreen.style.display = 'none';
+        gameOverScreen.style.display = 'none';
+        hud.style.display = 'flex';
+        updateUI();
+
+        // 預先生成一個金幣
+        spawnCoin();
+        
+        // 啟動迴圈
+        if(animationId) cancelAnimationFrame(animationId);
+        loop();
+    }
+
+    function takeDamage() {
+        if (player.invulnerable) return;
+
+        lives--;
+        updateUI();
+
+        // 震動畫面
+        shakeDuration = 15;
+        document.body.classList.add('shake');
+        setTimeout(() => document.body.classList.remove('shake'), 500);
+
+        if (lives <= 0) {
+            gameOver();
+        } else {
+            // 開啟無敵模式 2秒
+            player.invulnerable = true;
+            player.invulnerableEnd = Date.now() + 2000;
+        }
+    }
+
+    function gameOver() {
+        gameState = 'GAMEOVER';
+        hud.style.display = 'none';
+        gameOverScreen.style.display = 'block';
+        
+        // 結算數據
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('final-time').innerText = getFormattedTime();
+    }
+
+    // --- 核心演算法 ---
+
+    function checkCircleRect(circle, rect) {
+        // Clamp: 找出矩形上離圓心最近的點
+        const closestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.w));
+        const closestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.h));
+
+        const dx = circle.x - closestX;
+        const dy = circle.y - closestY;
+
+        return (dx * dx + dy * dy) < (circle.r * circle.r);
+    }
+
+    function checkCircleCircle(c1, c2) {
+        const dx = c1.x - c2.x;
+        const dy = c1.y - c2.y;
+        return (dx * dx + dy * dy) < ((c1.r + c2.r) ** 2);
+    }
+
+    // --- 更新與繪製 ---
+
+    function spawnEnemy() {
+        const size = 30 + Math.random() * 40;
+        // 確保不會直接生在玩家臉上 (生成在螢幕外)
+        let ex, ey;
+        const side = Math.floor(Math.random() * 4); // 0:上, 1:右, 2:下, 3:左
+        
+        if (side === 0) { ex = Math.random() * width; ey = -size; }
+        else if (side === 1) { ex = width + size; ey = Math.random() * height; }
+        else if (side === 2) { ex = Math.random() * width; ey = height + size; }
+        else { ex = -size; ey = Math.random() * height; }
+
+        // 難度隨時間增加
+        const speedBase = 2 + (score * 0.02) + (frameCount * 0.0005);
+        const angle = Math.atan2(player.y - ey, player.x - ex);
+        
+        enemies.push({
+            x: ex, y: ey, w: size, h: size,
+            vx: Math.cos(angle) * speedBase,
+            vy: Math.sin(angle) * speedBase
+        });
+    }
+
+    function spawnCoin() {
+        coins.push({
+            x: Math.random() * (width - 40) + 20,
+            y: Math.random() * (height - 40) + 20,
+            r: 8,
+            pulse: 0
+        });
+    }
+
+    function updateUI() {
+        scoreDisplay.innerText = score;
+        livesDisplay.innerText = "❤".repeat(lives);
+        timeDisplay.innerText = getFormattedTime();
+    }
+
+    function getFormattedTime() {
+        const diff = Date.now() - startTime;
+        const totalSec = Math.floor(diff / 1000);
+        const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+        const s = (totalSec % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    }
+
+    function loop() {
+        if (gameState !== 'PLAYING') return;
+
+        // 清空畫布
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, width, height);
+        
+        // 畫面震動效果 (Screen Shake)
+        ctx.save();
+        if (shakeDuration > 0) {
+            const dx = (Math.random() - 0.5) * 10;
+            const dy = (Math.random() - 0.5) * 10;
+            ctx.translate(dx, dy);
+            shakeDuration--;
+        }
+
+        // 1. 更新玩家
+        // 簡單的緩動跟隨
+        player.x += (mouse.x - player.x) * 0.15;
+        player.y += (mouse.y - player.y) * 0.15;
+
+        // 無敵狀態檢查
+        if (player.invulnerable) {
+            if (Date.now() > player.invulnerableEnd) {
+                player.invulnerable = false;
+            }
+        }
+
+        // 2. 生成邏輯
+        frameCount++;
+        if (frameCount % 45 === 0) spawnEnemy(); // 每 0.75秒生成敵人
+        if (frameCount % 100 === 0) spawnCoin();
+
+        // 3. 更新敵人 (AABB)
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let e = enemies[i];
+            e.x += e.vx;
+            e.y += e.vy;
+
+            // 碰撞檢測 Circle vs AABB
+            if (checkCircleRect(player, e)) {
+                takeDamage();
+                // 撞到後移除敵人，避免連續判定
+                enemies.splice(i, 1); 
+                continue;
+            }
+
+            // 移除出界
+            if (e.x < -100 || e.x > width + 100 || e.y < -100 || e.y > height + 100) {
+                enemies.splice(i, 1);
+            } else {
+                // 繪製敵人
+                ctx.fillStyle = '#ff4444';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#ff0000';
+                ctx.fillRect(e.x, e.y, e.w, e.h);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        // 4. 更新金幣
+        for (let i = coins.length - 1; i >= 0; i--) {
+            let c = coins[i];
+            c.pulse += 0.1;
+            
+            if (checkCircleCircle(player, c)) {
+                score += 10;
+                coins.splice(i, 1);
+                updateUI();
+            } else {
+                // 繪製金幣 (帶呼吸燈效果)
+                const r = c.r + Math.sin(c.pulse) * 2;
+                ctx.fillStyle = '#ffcc00';
+                ctx.beginPath();
+                ctx.arc(c.x, c.y, r, 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+
+        // 5. 繪製玩家
+        // 如果無敵中，閃爍效果
+        if (!player.invulnerable || Math.floor(Date.now() / 100) % 2 === 0) {
+            ctx.fillStyle = '#00d2ff';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#00d2ff';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // 中心點
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, 3, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        // 更新 UI 時間
+        if(frameCount % 30 === 0) updateUI();
+
+        ctx.restore(); // 結束震動偏移
+        animationId = requestAnimationFrame(loop);
+    }
+
+    // 初始化呼叫
+    resize();
+    
+    // 預設畫面：繪製靜態背景避免黑畫面
+    function drawStatic() {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0,0,width,height);
+        ctx.fillStyle = '#00d2ff';
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, 15, 0, Math.PI*2);
+        ctx.fill();
+    }
+    drawStatic();
+
+</script>
+</body>
+</html>
