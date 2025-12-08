@@ -196,43 +196,78 @@
             <p>這個技巧讓我們同時擁有了「大的山體形狀」（低頻層）和「地表的岩石細節」（高頻層）。</p>
         </section>
 
-        <section id="demo">
-            <h2>3. 演算法視覺化演示</h2>
-            <p>拖動下方的滑桿，觀察參數如何改變地形的生成。這是一個即時渲染的 2D Simplex Noise 切片。</p>
-            
+        <section id="demo-cloud">
+            <h2>3. 動態雲層視覺化</h2>
+            <p>觀察 Simplex Noise 如何模擬真實的雲層流動。使用時間作為第三維度，創造出連續變化的自然效果。</p>
+
             <div class="canvas-wrapper">
-                <canvas id="noiseCanvas" width="400" height="400"></canvas>
+                <canvas id="cloudCanvas" width="400" height="400"></canvas>
             </div>
 
             <div class="controls">
                 <div class="control-group">
-                    <label>視野縮放 (Zoom) <span id="val-zoom">50</span></label>
-                    <input type="range" id="zoom" min="10" max="150" value="50">
+                    <label>視野縮放 (Zoom) <span id="val-cloud-zoom">50</span></label>
+                    <input type="range" id="cloud-zoom" min="10" max="150" value="50">
+                    <div class="explanation">類似相機變焦。數值越大，看到的範圍越廣，雲層越密集。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>細節層數 (Octaves) <span id="val-cloud-octaves">4</span></label>
+                    <input type="range" id="cloud-octaves" min="1" max="8" value="4" step="1">
+                    <div class="explanation">疊加的層數。層數越多，雲朵邊緣越細緻。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>流動速度 (Speed) <span id="val-cloud-speed">1</span></label>
+                    <input type="range" id="cloud-speed" min="0" max="5" value="1" step="0.1">
+                    <div class="explanation">將時間作為 Z 軸傳入，模擬雲朵的動態流動。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>雲層對比 (Contrast) <span id="val-cloud-contrast">1.2</span></label>
+                    <input type="range" id="cloud-contrast" min="0.5" max="3" value="1.2" step="0.1">
+                    <div class="explanation">增強濃淡差異，讓雲層更立體。</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="demo-terrain">
+            <h2>4. 靜態地形視覺化</h2>
+            <p>使用相同的演算法生成程序化地形。從深海到雪山，所有顏色都由高度值自動決定。</p>
+
+            <div class="canvas-wrapper">
+                <canvas id="terrainCanvas" width="400" height="400"></canvas>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label>視野縮放 (Zoom) <span id="val-terrain-zoom">50</span></label>
+                    <input type="range" id="terrain-zoom" min="10" max="150" value="50">
                     <div class="explanation">類似相機變焦。數值越大，看到的範圍越廣，地形越密集。</div>
                 </div>
 
                 <div class="control-group">
-                    <label>細節層數 (Octaves) <span id="val-octaves">4</span></label>
-                    <input type="range" id="octaves" min="1" max="8" value="4" step="1">
-                    <div class="explanation">疊加的層數。層數越多，邊緣越毛糙，細節越豐富。</div>
+                    <label>細節層數 (Octaves) <span id="val-terrain-octaves">4</span></label>
+                    <input type="range" id="terrain-octaves" min="1" max="8" value="4" step="1">
+                    <div class="explanation">疊加的層數。層數越多，地形細節越豐富。</div>
                 </div>
 
                 <div class="control-group">
-                    <label>時間流動 (Time) <span id="val-speed">1</span></label>
-                    <input type="range" id="speed" min="0" max="5" value="1" step="0.1">
-                    <div class="explanation">將時間作為 Z 軸傳入，模擬雲朵或岩漿的動態流動。</div>
-                </div>
-
-                <div class="control-group">
-                    <label>地形對比 (Contrast) <span id="val-contrast">1</span></label>
-                    <input type="range" id="contrast" min="0.5" max="3" value="1" step="0.1">
+                    <label>地形對比 (Contrast) <span id="val-terrain-contrast">1</span></label>
+                    <input type="range" id="terrain-contrast" min="0.5" max="3" value="1" step="0.1">
                     <div class="explanation">增強高低差，讓山更明顯。</div>
+                </div>
+
+                <div class="control-group">
+                    <label>地形種子 (Seed) <span id="val-terrain-seed">0</span></label>
+                    <input type="range" id="terrain-seed" min="0" max="100" value="0" step="1">
+                    <div class="explanation">改變隨機種子，生成不同的地形。</div>
                 </div>
             </div>
         </section>
 
         <section id="application">
-            <h2>4. 實際應用體驗</h2>
+            <h2>5. 實際應用體驗</h2>
             <p>了解了原理，讓我們看看它在遊戲中是如何運作的。在下方的範例中，我們使用 <strong>1D Simplex Noise</strong> 來即時生成無限的洞穴地形。</p>
             
             <a href="game.html" class="btn-link" target="_blank">
@@ -247,45 +282,45 @@
     </div>
 
     <script>
-        const canvas = document.getElementById('noiseCanvas');
-        const ctx = canvas.getContext('2d');
-        const simplex = new SimplexNoise();
-        
-        // 取得 UI 元素
-        const inputs = {
-            zoom: document.getElementById('zoom'),
-            octaves: document.getElementById('octaves'),
-            speed: document.getElementById('speed'),
-            contrast: document.getElementById('contrast')
-        };
-        
-        let time = 0;
+        // ==================== 雲層視覺化 ====================
+        const cloudCanvas = document.getElementById('cloudCanvas');
+        const cloudCtx = cloudCanvas.getContext('2d');
+        const cloudSimplex = new SimplexNoise();
 
-        function updateDisplay() {
-            document.getElementById('val-zoom').innerText = inputs.zoom.value;
-            document.getElementById('val-octaves').innerText = inputs.octaves.value;
-            document.getElementById('val-speed').innerText = inputs.speed.value;
-            document.getElementById('val-contrast').innerText = inputs.contrast.value;
+        const cloudInputs = {
+            zoom: document.getElementById('cloud-zoom'),
+            octaves: document.getElementById('cloud-octaves'),
+            speed: document.getElementById('cloud-speed'),
+            contrast: document.getElementById('cloud-contrast')
+        };
+
+        let cloudTime = 0;
+
+        function updateCloudDisplay() {
+            document.getElementById('val-cloud-zoom').innerText = cloudInputs.zoom.value;
+            document.getElementById('val-cloud-octaves').innerText = cloudInputs.octaves.value;
+            document.getElementById('val-cloud-speed').innerText = cloudInputs.speed.value;
+            document.getElementById('val-cloud-contrast').innerText = cloudInputs.contrast.value;
         }
 
-        function draw() {
-            const width = canvas.width;
-            const height = canvas.height;
-            const imageData = ctx.createImageData(width, height);
+        function drawCloud() {
+            const width = cloudCanvas.width;
+            const height = cloudCanvas.height;
+            const imageData = cloudCtx.createImageData(width, height);
             const data = imageData.data;
 
-            const zoom = parseInt(inputs.zoom.value);
-            const octaves = parseInt(inputs.octaves.value);
-            const speed = parseFloat(inputs.speed.value);
-            const contrast = parseFloat(inputs.contrast.value);
+            const zoom = parseInt(cloudInputs.zoom.value);
+            const octaves = parseInt(cloudInputs.octaves.value);
+            const speed = parseFloat(cloudInputs.speed.value);
+            const contrast = parseFloat(cloudInputs.contrast.value);
 
             // 更新時間
-            time += speed * 0.01;
+            cloudTime += speed * 0.01;
 
             // 像素處理循環
             for (let x = 0; x < width; x++) {
                 for (let y = 0; y < height; y++) {
-                    
+
                     let noiseValue = 0;
                     let amplitude = 1;
                     let frequency = 1;
@@ -293,12 +328,86 @@
 
                     // 疊加 Octaves
                     for(let i = 0; i < octaves; i++) {
-                        noiseValue += simplex.noise3D(
-                            (x / zoom) * frequency, 
-                            (y / zoom) * frequency, 
-                            time
+                        noiseValue += cloudSimplex.noise3D(
+                            (x / zoom) * frequency,
+                            (y / zoom) * frequency,
+                            cloudTime
                         ) * amplitude;
-                        
+
+                        maxValue += amplitude;
+                        amplitude *= 0.5;
+                        frequency *= 2;
+                    }
+
+                    noiseValue = noiseValue / maxValue; // 正規化 -1 ~ 1
+
+                    // 雲層顏色計算（白色到深灰色）
+                    let colorVal = (noiseValue * contrast + 1) * 128;
+                    colorVal = Math.max(0, Math.min(255, colorVal));
+
+                    const cell = (x + y * width) * 4;
+
+                    // 雲層著色（從深灰到白色，帶點藍色調）
+                    const skyBlue = Math.min(255, colorVal + 40);
+                    data[cell] = colorVal;           // R
+                    data[cell+1] = colorVal;         // G
+                    data[cell+2] = skyBlue;          // B
+                    data[cell + 3] = 255;            // Alpha
+                }
+            }
+
+            cloudCtx.putImageData(imageData, 0, 0);
+            updateCloudDisplay();
+            requestAnimationFrame(drawCloud);
+        }
+
+        // ==================== 地形視覺化 ====================
+        const terrainCanvas = document.getElementById('terrainCanvas');
+        const terrainCtx = terrainCanvas.getContext('2d');
+        const terrainSimplex = new SimplexNoise();
+
+        const terrainInputs = {
+            zoom: document.getElementById('terrain-zoom'),
+            octaves: document.getElementById('terrain-octaves'),
+            contrast: document.getElementById('terrain-contrast'),
+            seed: document.getElementById('terrain-seed')
+        };
+
+        function updateTerrainDisplay() {
+            document.getElementById('val-terrain-zoom').innerText = terrainInputs.zoom.value;
+            document.getElementById('val-terrain-octaves').innerText = terrainInputs.octaves.value;
+            document.getElementById('val-terrain-contrast').innerText = terrainInputs.contrast.value;
+            document.getElementById('val-terrain-seed').innerText = terrainInputs.seed.value;
+        }
+
+        function drawTerrain() {
+            const width = terrainCanvas.width;
+            const height = terrainCanvas.height;
+            const imageData = terrainCtx.createImageData(width, height);
+            const data = imageData.data;
+
+            const zoom = parseInt(terrainInputs.zoom.value);
+            const octaves = parseInt(terrainInputs.octaves.value);
+            const contrast = parseFloat(terrainInputs.contrast.value);
+            const seed = parseFloat(terrainInputs.seed.value);
+
+            // 像素處理循環
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+
+                    let noiseValue = 0;
+                    let amplitude = 1;
+                    let frequency = 1;
+                    let maxValue = 0;
+
+                    // 疊加 Octaves
+                    for(let i = 0; i < octaves; i++) {
+                        noiseValue += terrainSimplex.noise3D(
+                            (x / zoom) * frequency,
+                            (y / zoom) * frequency,
+                            seed // 使用固定的種子值而非時間
+                        ) * amplitude;
+
                         maxValue += amplitude;
                         amplitude *= 0.5;
                         frequency *= 2;
@@ -311,29 +420,42 @@
                     colorVal = Math.max(0, Math.min(255, colorVal));
 
                     const cell = (x + y * width) * 4;
-                    
-                    // 顏色映射 (地形上色)
+
+                    // 地形上色
                     if(colorVal < 100) { // 深水
-                        data[cell] = 10; data[cell+1] = 30 + colorVal; data[cell+2] = 100 + colorVal;
+                        data[cell] = 10;
+                        data[cell+1] = 30 + colorVal;
+                        data[cell+2] = 100 + colorVal;
                     } else if (colorVal < 140) { // 淺水/沙灘
-                        data[cell] = colorVal; data[cell+1] = colorVal + 20; data[cell+2] = 180;
+                        data[cell] = colorVal;
+                        data[cell+1] = colorVal + 20;
+                        data[cell+2] = 180;
                     } else if (colorVal < 200) { // 草地
-                        data[cell] = 50; data[cell+1] = colorVal; data[cell+2] = 50;
+                        data[cell] = 50;
+                        data[cell+1] = colorVal;
+                        data[cell+2] = 50;
                     } else { // 雪地
-                        data[cell] = colorVal; data[cell+1] = colorVal; data[cell+2] = colorVal;
+                        data[cell] = colorVal;
+                        data[cell+1] = colorVal;
+                        data[cell+2] = colorVal;
                     }
-                    
+
                     data[cell + 3] = 255; // Alpha
                 }
             }
 
-            ctx.putImageData(imageData, 0, 0);
-            updateDisplay();
-            requestAnimationFrame(draw);
+            terrainCtx.putImageData(imageData, 0, 0);
+            updateTerrainDisplay();
         }
 
+        // 監聽地形控制項變化
+        Object.values(terrainInputs).forEach(input => {
+            input.addEventListener('input', drawTerrain);
+        });
+
         // 啟動
-        draw();
+        drawCloud();  // 雲層持續動畫
+        drawTerrain(); // 地形繪製一次（之後由使用者互動更新）
     </script>
 </body>
 </html>
