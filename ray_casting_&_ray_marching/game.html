@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RayCaster Dark - 迷宮探索</title>
+    <style>
+        :root {
+            --bg-color: #0f0f12;
+            --panel-bg: #1a1a1f;
+            --accent: #00ff88;
+            --text: #e0e0e0;
+            --ui-border: #333;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text);
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* HUD */
+        #hud {
+            padding: 10px 20px;
+            background: #000;
+            border-bottom: 2px solid var(--accent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 50px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+        
+        h1 { margin: 0; font-size: 1.2rem; color: var(--accent); letter-spacing: 2px; }
+        .stats { font-size: 0.9rem; color: #888; }
+        .stats span { color: #fff; margin-left: 5px; font-weight: bold; }
+
+        /* Game Container */
+        #game-container {
+            display: flex;
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Overlay */
+        #level-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 100;
+            transition: opacity 0.5s;
+        }
+        #level-overlay h2 { font-size: 3rem; color: var(--accent); margin: 0 0 20px 0; text-shadow: 0 0 10px var(--accent); }
+        #level-overlay p { font-size: 1.2rem; margin-bottom: 30px; }
+        .back-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 24px;
+            color: var(--text);
+            text-decoration: none;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.05);
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .back-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0,255,136,0.1);
+        }
+
+        /* 2D Map (Left) */
+        #debug-view {
+            flex: 1;
+            background: #000; /* 全黑背景 */
+            border-right: 2px solid var(--ui-border);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 3D View (Right) */
+        #player-view {
+            flex: 1.5;
+            background: #000;
+            position: relative;
+        }
+
+        canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+        /* Labels & UI */
+        .label {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.8); padding: 5px 10px;
+            border: 1px solid #555; pointer-events: none;
+            font-size: 0.8rem; color: var(--accent);
+        }
+
+        .instructions {
+            position: absolute; bottom: 20px; right: 20px;
+            text-align: right; color: #aaa; font-size: 0.8rem; pointer-events: none;
+            background: rgba(0,0,0,0.6); padding: 15px; border-radius: 8px;
+        }
+        .key { display: inline-block; padding: 2px 8px; border: 1px solid #666; border-radius: 4px; background: #222; margin: 0 2px; color: #fff; font-weight: bold; }
+
+        /* Controls Panel */
+        #controls {
+            position: absolute; bottom: 20px; left: 20px;
+            background: rgba(0,0,0,0.8); padding: 15px;
+            border-radius: 8px; border: 1px solid #444;
+            width: 250px; z-index: 50;
+        }
+        .control-group { margin-bottom: 10px; }
+        .control-group label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 4px; }
+        input[type=range] { width: 100%; accent-color: var(--accent); }
+
+        @media (max-width: 768px) {
+            #game-container { flex-direction: column-reverse; }
+            #debug-view { flex: 1; border-right: none; border-top: 2px solid var(--ui-border); }
+            #player-view { flex: 1; }
+            #controls { display: none; }
+            .instructions { bottom: auto; top: 10px; right: 10px; font-size: 0.7rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <h1>RAYCASTER <span style="color:#fff; font-size:0.6em;">DARK</span></h1>
+    <div class="stats">
+        FPS: <span id="fps">60</span>
+    </div>
+</div>
+
+<div id="game-container">
+    <div id="level-overlay">
+        <h2 id="msg-title">SYSTEM READY</h2>
+        <p id="msg-desc">按任意鍵開始探索</p>
+        <a href="visualizer.html" class="back-btn">← 返回演算法解析</a>
+    </div>
+
+    <div id="debug-view">
+        <div class="label">Lidar Scan (Radar)</div>
+        <canvas id="mapCanvas"></canvas>
+        
+        <div id="controls">
+            <div class="control-group">
+                <label>解析度: <span id="res-val">50%</span></label>
+                <input type="range" id="res-slider" min="10" max="100" value="50">
+            </div>
+            <div class="control-group">
+                <label>FOV: <span id="fov-val">66°</span></label>
+                <input type="range" id="fov-slider" min="30" max="110" value="66">
+            </div>
+            <div style="font-size: 0.7rem; color: #666; margin-top:10px;">
+                地圖僅顯示目前視野與關鍵點
+            </div>
+        </div>
+    </div>
+
+    <div id="player-view">
+        <div class="label">Vision (3D)</div>
+        <canvas id="gameCanvas"></canvas>
+        <div class="instructions">
+            <span class="key">W</span><span class="key">S</span> 前後移動<br>
+            <span class="key">A</span><span class="key">D</span> 左右平移<br>
+            <span class="key">←</span><span class="key">→</span> 旋轉視角<br>
+            目標：<span style="color:#0f0; font-weight:bold;">綠色光柱</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // === 設定 ===
+    const mapCanvas = document.getElementById('mapCanvas');
+    const gameCanvas = document.getElementById('gameCanvas');
+    const mapCtx = mapCanvas.getContext('2d');
+    const gameCtx = gameCanvas.getContext('2d');
+
+    const MAP_SIZE = 21; 
+    let map = []; 
+    let objects = []; 
+    
+    let player = { x: 0, y: 0, dirX: -1, dirY: 0, planeX: 0, planeY: 0.66 };
+    let input = { w:false, s:false, a:false, d:false, left:false, right:false };
+    
+    let gameState = "start"; 
+    let zBuffer = []; 
+    let raysForRadar = []; // 儲存射線資訊給 Radar 使用
+
+    let resolutionScale = 0.5;
+    let fovMultiplier = 1.0;
+
+    // === 迷宮生成 ===
+    function generateMaze() {
+        let newMap = [];
+        for(let x=0; x<MAP_SIZE; x++) {
+            newMap[x] = [];
+            for(let y=0; y<MAP_SIZE; y++) {
+                newMap[x][y] = 1;
+            }
+        }
+        function carve(r, c) {
+            newMap[r][c] = 0;
+            const directions = [{dr: -2, dc: 0}, {dr: 2, dc: 0}, {dr: 0, dc: -2}, {dr: 0, dc: 2}].sort(() => Math.random() - 0.5);
+            for (let dir of directions) {
+                const nr = r + dir.dr;
+                const nc = c + dir.dc;
+                if (nr > 0 && nr < MAP_SIZE && nc > 0 && nc < MAP_SIZE && newMap[nr][nc] === 1) {
+                    newMap[r + dir.dr/2][c + dir.dc/2] = 0;
+                    carve(nr, nc);
+                }
+            }
+        }
+        carve(1, 1);
+        map = newMap;
+    }
+
+    function setupLevel() {
+        objects = [];
+        generateMaze();
+        player.x = 1.5; player.y = 1.5;
+        player.dirX = 1; player.dirY = 0; 
+        player.planeX = 0; player.planeY = 0.66;
+        objects.push({ x: 1.5, y: 1.5, type: 3 }); // 起點
+        let endPos = findFurthestPoint(1, 1);
+        objects.push({ x: endPos.x + 0.5, y: endPos.y + 0.5, type: 2 }); // 終點
+    }
+
+    function findFurthestPoint(startX, startY) {
+        let queue = [{x: startX, y: startY, dist: 0}];
+        let visited = new Set([`${startX},${startY}`]);
+        let maxDist = -1;
+        let furthest = {x: startX, y: startY};
+        while(queue.length > 0) {
+            let curr = queue.shift();
+            if(curr.dist > maxDist) { maxDist = curr.dist; furthest = {x: curr.x, y: curr.y}; }
+            const dirs = [{dx:0, dy:1}, {dx:0, dy:-1}, {dx:1, dy:0}, {dx:-1, dy:0}];
+            for(let d of dirs) {
+                let nx = curr.x + d.dx; let ny = curr.y + d.dy;
+                if(nx >=0 && nx < MAP_SIZE && ny >=0 && ny < MAP_SIZE && map[nx][ny] === 0 && !visited.has(`${nx},${ny}`)) {
+                    visited.add(`${nx},${ny}`); queue.push({x: nx, y: ny, dist: curr.dist + 1});
+                }
+            }
+        }
+        return furthest;
+    }
+
+    // === 控制 ===
+    window.addEventListener('resize', resize);
+    window.addEventListener('keydown', e => { handleKey(e.code, true); if(gameState !== "playing" && !e.repeat) startGame(); });
+    window.addEventListener('keyup', e => handleKey(e.code, false));
+    document.getElementById('res-slider').addEventListener('input', (e) => { resolutionScale = e.target.value / 100; document.getElementById('res-val').innerText = e.target.value + '%'; });
+    document.getElementById('fov-slider').addEventListener('input', (e) => { 
+        let fov = parseInt(e.target.value); 
+        document.getElementById('fov-val').innerText = fov + '°'; 
+        fovMultiplier = Math.tan((fov * Math.PI / 180) / 2) / 0.66; 
+    });
+
+    function handleKey(code, state) {
+        switch(code) {
+            case 'KeyW': input.w = state; break;
+            case 'KeyS': input.s = state; break;
+            case 'KeyA': input.a = state; break;
+            case 'KeyD': input.d = state; break;
+            case 'ArrowLeft': input.left = state; break;
+            case 'ArrowRight': input.right = state; break;
+        }
+    }
+
+    function startGame() {
+        const overlay = document.getElementById('level-overlay');
+        overlay.style.opacity = 0;
+        setTimeout(() => { overlay.style.display = 'none'; }, 500);
+        if(gameState === "start") setupLevel();
+        gameState = "playing";
+    }
+
+    function levelComplete() {
+        gameState = "transition";
+        document.getElementById('msg-title').innerText = "AREA CLEARED";
+        document.getElementById('msg-desc').innerText = "區域淨化完成 - 準備前往下一區";
+        const overlay = document.getElementById('level-overlay');
+        overlay.style.display = 'flex';
+        overlay.offsetHeight; overlay.style.opacity = 1;
+        setTimeout(() => { setupLevel(); document.getElementById('msg-title').innerText = "NEW AREA"; document.getElementById('msg-desc').innerText = "按任意鍵開始"; }, 1500);
+    }
+
+    function resize() {
+        const debugDiv = document.getElementById('debug-view');
+        const playerDiv = document.getElementById('player-view');
+        if(debugDiv.clientWidth > 0) {
+            mapCanvas.width = debugDiv.clientWidth; mapCanvas.height = debugDiv.clientHeight;
+            gameCanvas.width = playerDiv.clientWidth; gameCanvas.height = playerDiv.clientHeight;
+        }
+    }
+
+    // === 遊戲邏輯 ===
+    function update() {
+        if(gameState !== "playing") return;
+        const moveSpeed = 0.08;
+        const rotSpeed = 0.04;
+
+        // [修正] 旋轉邏輯對調
+        let rot = 0;
+        if(input.right) rot = rotSpeed;  // 右鍵: 正向旋轉 (順時針)
+        if(input.left)  rot = -rotSpeed; // 左鍵: 負向旋轉 (逆時針)
+
+        if(rot !== 0) {
+            const oldDirX = player.dirX;
+            player.dirX = player.dirX * Math.cos(rot) - player.dirY * Math.sin(rot);
+            player.dirY = oldDirX * Math.sin(rot) + player.dirY * Math.cos(rot);
+            const oldPlaneX = player.planeX;
+            player.planeX = player.planeX * Math.cos(rot) - player.planeY * Math.sin(rot);
+            player.planeY = oldPlaneX * Math.sin(rot) + player.planeY * Math.cos(rot);
+        }
+
+        let moveX = 0, moveY = 0;
+        if(input.w) { moveX += player.dirX * moveSpeed; moveY += player.dirY * moveSpeed; }
+        if(input.s) { moveX -= player.dirX * moveSpeed; moveY -= player.dirY * moveSpeed; }
+        if(input.a) { moveX += player.dirY * moveSpeed; moveY -= player.dirX * moveSpeed; }
+        if(input.d) { moveX -= player.dirY * moveSpeed; moveY += player.dirX * moveSpeed; }
+
+        if(moveX !== 0 || moveY !== 0) {
+            let nextX = player.x + moveX;
+            let nextY = player.y + moveY;
+            const padding = 0.25;
+            if(map[Math.floor(nextX + padding * Math.sign(moveX))][Math.floor(player.y)] === 0) player.x = nextX;
+            if(map[Math.floor(player.x)][Math.floor(nextY + padding * Math.sign(moveY))] === 0) player.y = nextY;
+        }
+
+        for(let obj of objects) {
+            if(obj.type === 2 && Math.sqrt((player.x - obj.x)**2 + (player.y - obj.y)**2) < 0.5) levelComplete();
+        }
+    }
+
+    // === 渲染 ===
+    function draw() {
+        gameCtx.fillStyle = '#111'; gameCtx.fillRect(0,0,gameCanvas.width, gameCanvas.height);
+        gameCtx.fillStyle = '#222'; gameCtx.fillRect(0,gameCanvas.height/2,gameCanvas.width, gameCanvas.height/2);
+        
+        // 清空 2D 地圖 (全黑)
+        mapCtx.fillStyle = '#000'; mapCtx.fillRect(0,0,mapCanvas.width, mapCanvas.height);
+
+        const w = gameCanvas.width;
+        const h = gameCanvas.height;
+        zBuffer = new Array(w).fill(0); 
+        raysForRadar = []; // 重置雷達射線數據
+
+        const stripWidth = Math.max(1, Math.floor(1 / resolutionScale)); 
+        let currentPlaneX = player.planeX * fovMultiplier;
+        let currentPlaneY = player.planeY * fovMultiplier;
+
+        // --- Ray Casting ---
+        for(let x = 0; x < w; x += stripWidth) {
+            const cameraX = 2 * x / w - 1;
+            const rayDirX = player.dirX + currentPlaneX * cameraX;
+            const rayDirY = player.dirY + currentPlaneY * cameraX;
+
+            let mapX = Math.floor(player.x);
+            let mapY = Math.floor(player.y);
+            let sideDistX, sideDistY;
+            const deltaDistX = (rayDirX === 0) ? 1e30 : Math.abs(1 / rayDirX);
+            const deltaDistY = (rayDirY === 0) ? 1e30 : Math.abs(1 / rayDirY);
+            let stepX, stepY, hit = 0, side;
+
+            if (rayDirX < 0) { stepX = -1; sideDistX = (player.x - mapX) * deltaDistX; }
+            else { stepX = 1; sideDistX = (mapX + 1.0 - player.x) * deltaDistX; }
+            if (rayDirY < 0) { stepY = -1; sideDistY = (player.y - mapY) * deltaDistY; }
+            else { stepY = 1; sideDistY = (mapY + 1.0 - player.y) * deltaDistY; }
+
+            while (hit === 0) {
+                if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+                else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+                if (map[mapX][mapY] > 0) hit = 1;
+            }
+
+            let perpWallDist;
+            if (side === 0) perpWallDist = (sideDistX - deltaDistX);
+            else            perpWallDist = (sideDistY - deltaDistY);
+
+            // [新增] 收集射線數據給 Radar 使用 (為了效能，每10條收1條，或看解析度)
+            // 計算實際世界座標的撞擊點，用於在 2D 地圖上畫點
+            let hitWorldX, hitWorldY;
+            // 這裡還原未修正魚眼的距離來算真實物理碰撞點
+            let trueDist = (side===0) ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+            hitWorldX = player.x + rayDirX * trueDist;
+            hitWorldY = player.y + rayDirY * trueDist;
+            
+            // 為了 Radar 不過於密集，進行採樣
+            if(x % (stripWidth * 4) === 0) { 
+                raysForRadar.push({x: hitWorldX, y: hitWorldY});
+            }
+
+            for(let sx = 0; sx < stripWidth && x+sx < w; sx++) zBuffer[x+sx] = perpWallDist;
+
+            const lineHeight = Math.floor(h / perpWallDist);
+            let drawStart = -lineHeight / 2 + h / 2;
+            if(drawStart < 0) drawStart = 0;
+            let drawEnd = lineHeight / 2 + h / 2;
+            if(drawEnd >= h) drawEnd = h - 1;
+
+            let colorVal = side === 1 ? 160 : 200;
+            const brightness = Math.min(1, 2.0 / perpWallDist); 
+            colorVal = Math.floor(colorVal * brightness);
+            gameCtx.fillStyle = `rgb(${colorVal}, ${colorVal}, ${colorVal})`;
+            gameCtx.fillRect(x, drawStart, stripWidth, drawEnd - drawStart);
+        }
+
+        // --- Billboarding ---
+        for(let obj of objects) obj.distance = ((player.x - obj.x)**2 + (player.y - obj.y)**2);
+        objects.sort((a, b) => b.distance - a.distance);
+
+        for(let obj of objects) {
+            const spriteX = obj.x - player.x;
+            const spriteY = obj.y - player.y;
+            const invDet = 1.0 / (currentPlaneX * player.dirY - player.dirX * currentPlaneY);
+            const transformX = invDet * (player.dirY * spriteX - player.dirX * spriteY);
+            const transformY = invDet * (-currentPlaneY * spriteX + currentPlaneX * spriteY);
+
+            if (transformY <= 0) continue;
+
+            const spriteScreenX = Math.floor((w / 2) * (1 + transformX / transformY));
+            const spriteSize = Math.abs(Math.floor(h / transformY)); 
+            
+            let drawStartY = -spriteSize / 2 + h / 2; if(drawStartY < 0) drawStartY = 0;
+            let drawEndY = spriteSize / 2 + h / 2; if(drawEndY >= h) drawEndY = h - 1;
+            let drawStartX = -spriteSize / 2 + spriteScreenX; if(drawStartX < 0) drawStartX = 0;
+            let drawEndX = spriteSize / 2 + spriteScreenX; if(drawEndX >= w) drawEndX = w - 1;
+
+            for(let stripe = Math.floor(drawStartX); stripe < drawEndX; stripe++) {
+                if(transformY < zBuffer[stripe]) {
+                    const factor = (stripe - (spriteScreenX - spriteSize/2)) / spriteSize; 
+                    const intensity = Math.sin(factor * Math.PI); 
+                    gameCtx.globalAlpha = 0.6 * intensity; 
+                    if(obj.type === 2) gameCtx.fillStyle = `rgb(50,255,50)`; // Green
+                    if(obj.type === 3) gameCtx.fillStyle = `rgb(50,50,255)`; // Blue
+                    gameCtx.fillRect(stripe, drawStartY, 1, drawEndY - drawStartY);
+                    if(intensity > 0.95) { gameCtx.fillStyle = '#fff'; gameCtx.fillRect(stripe, drawStartY, 1, drawEndY - drawStartY); }
+                }
+            }
+            gameCtx.globalAlpha = 1.0; 
+        }
+
+        drawRadar();
+    }
+
+    // [修正] 全新的 Radar 繪製邏輯 (Fog of War)
+    function drawRadar() {
+        const scale = Math.min(mapCanvas.width / MAP_SIZE, mapCanvas.height / MAP_SIZE);
+        const offsetX = (mapCanvas.width - MAP_SIZE * scale) / 2;
+        const offsetY = (mapCanvas.height - MAP_SIZE * scale) / 2;
+
+        // 1. 不再繪製所有牆壁 (移除地圖循環)
+        
+        // 2. 繪製起點與終點 (強制顯示，確保方位)
+        for(let obj of objects) {
+            mapCtx.fillStyle = obj.type === 2 ? '#0f0' : '#00f'; // 綠=終點, 藍=起點
+            mapCtx.beginPath();
+            mapCtx.arc(offsetX + obj.x*scale, offsetY + obj.y*scale, scale*0.4, 0, Math.PI*2);
+            mapCtx.fill();
+            // 增加光暈效果方便在黑暗中辨識
+            mapCtx.strokeStyle = obj.type === 2 ? 'rgba(0,255,0,0.3)' : 'rgba(0,0,255,0.3)';
+            mapCtx.lineWidth = 2;
+            mapCtx.stroke();
+        }
+
+        // 3. 繪製視野射線 (Lidar Effect)
+        // 這些射線是在 3D 渲染時計算出來的真實撞擊點
+        mapCtx.lineWidth = 1;
+        for(let ray of raysForRadar) {
+            // 畫出光束 (從玩家到牆壁) - 營造手電筒感
+            const grad = mapCtx.createLinearGradient(
+                offsetX + player.x*scale, offsetY + player.y*scale,
+                offsetX + ray.x*scale, offsetY + ray.y*scale
+            );
+            grad.addColorStop(0, "rgba(255, 255, 0, 0.4)"); // 近處亮
+            grad.addColorStop(1, "rgba(255, 255, 0, 0.0)"); // 遠處消失
+
+            mapCtx.strokeStyle = grad;
+            mapCtx.beginPath();
+            mapCtx.moveTo(offsetX + player.x*scale, offsetY + player.y*scale);
+            mapCtx.lineTo(offsetX + ray.x*scale, offsetY + ray.y*scale);
+            mapCtx.stroke();
+
+            // 畫出撞擊點 (牆壁輪廓)
+            mapCtx.fillStyle = '#fff';
+            mapCtx.fillRect(offsetX + ray.x*scale, offsetY + ray.y*scale, 2, 2);
+        }
+
+        // 4. 繪製玩家
+        mapCtx.fillStyle = '#fff';
+        mapCtx.beginPath();
+        mapCtx.arc(offsetX + player.x*scale, offsetY + player.y*scale, scale*0.3, 0, Math.PI*2);
+        mapCtx.fill();
+    }
+
+    let lastTime = 0;
+    function loop(timestamp) {
+        const dt = timestamp - lastTime;
+        lastTime = timestamp;
+        if(dt > 0) document.getElementById('fps').innerText = Math.round(1000/dt);
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+    resize();
+    setupLevel();
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

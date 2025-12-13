@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖學演算法解析：Ray Casting vs Ray Marching</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #e0e0e0;
+            --text-muted: #a0a0a0;
+            --accent: #00bcd4;
+            --code-bg: #2d2d2d;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 20px;
+            background: linear-gradient(180deg, #1f2937 0%, var(--bg-color) 100%);
+        }
+
+        h1 { margin: 0; font-size: 2.5rem; color: var(--accent); }
+        h2 { border-bottom: 2px solid var(--accent); padding-bottom: 10px; margin-top: 40px; }
+        p { color: var(--text-muted); }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* --- Section 1: Theory --- */
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .card h3 { margin-top: 0; color: #fff; }
+
+        /* --- Section 2: Code --- */
+        pre {
+            background: var(--code-bg);
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            color: #d4d4d4;
+        }
+        .keyword { color: #569cd6; }
+        .func { color: #dcdcaa; }
+        .comment { color: #6a9955; }
+
+        /* --- Section 3: Visualizer --- */
+        .demo-wrapper {
+            display: flex;
+            height: 500px;
+            border: 1px solid #444;
+            margin-top: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+            cursor: crosshair;
+        }
+
+        .panel {
+            flex: 1;
+            position: relative;
+            border-right: 1px solid #444;
+            background: #000;
+            overflow: hidden;
+        }
+        .panel:last-child { border-right: none; }
+        canvas { display: block; width: 100%; height: 100%; }
+
+        .panel-label {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.8); color: var(--accent);
+            padding: 6px 10px; border-radius: 4px; font-size: 0.9rem;
+            pointer-events: none;
+            border-left: 3px solid var(--accent);
+            z-index: 10;
+        }
+
+        .debug-info {
+            position: absolute; bottom: 10px; left: 10px;
+            color: #888; font-family: monospace; font-size: 0.8rem;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* --- Section 4: Link --- */
+        .action-area {
+            text-align: center;
+            padding: 60px 0;
+        }
+        
+        .btn {
+            display: inline-block;
+            background: var(--accent);
+            color: #000;
+            padding: 15px 30px;
+            text-decoration: none;
+            font-weight: bold;
+            border-radius: 30px;
+            font-size: 1.2rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 188, 212, 0.4);
+        }
+
+        /* --- Responsive --- */
+        @media (max-width: 768px) {
+            .comparison-grid { grid-template-columns: 1fr; }
+            .demo-wrapper { flex-direction: column; height: 700px; }
+            .panel { border-right: none; border-bottom: 1px solid #444; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>光線投射 vs 光線行進</h1>
+    <p>Ray Casting & Ray Marching 互動式教學與視覺化</p>
+</header>
+
+<div class="container">
+
+    <section id="theory">
+        <h2>1. 理論基礎：兩種偵測世界的方式</h2>
+        <div class="comparison-grid">
+            <div class="card">
+                <h3>Ray Casting (光線投射)</h3>
+                <p><strong>概念：</strong> 想像雷射光。這是一種「解析解」算法。我們利用幾何公式，直接計算出一條直線與物體表面的交點。</p>
+                <ul>
+                    <li><strong>優點：</strong> 對於簡單幾何（球、平面）極度精確且快速。</li>
+                    <li><strong>缺點：</strong> 物體形狀複雜時運算量大增，難以處理體積（如雲霧）。</li>
+                    <li><strong>經典應用：</strong> Wolfenstein 3D, Doom (早期), 滑鼠點擊選取。</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h3>Ray Marching (光線行進)</h3>
+                <p><strong>概念：</strong> 想像盲人導盲。這是一種「迭代解」算法。光線不知道物體在哪，但它知道「離最近物體有多遠」(SDF)。它利用這個安全距離一步步跳躍前進。</p>
+                <ul>
+                    <li><strong>優點：</strong> 可以渲染無限重複物體、變形融合、體積霧氣。</li>
+                    <li><strong>缺點：</strong> 運算次數較多，若光線擦過物體邊緣會消耗大量效能。</li>
+                    <li><strong>經典應用：</strong> ShaderToy 藝術, 體積雲渲染, 醫學影像重建。</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section id="code">
+        <h2>2. 核心邏輯比較</h2>
+        <div class="comparison-grid">
+            <div>
+                <h4>Ray Casting (Python 風格偽代碼)</h4>
+                <pre><code class="language-python"><span class="keyword">def</span> <span class="func">ray_cast</span>(origin, direction):
+    min_dist = infinity
+    hit_obj = None
+
+    <span class="comment"># 遍歷所有物體，直接解數學方程</span>
+    <span class="keyword">for</span> obj <span class="keyword">in</span> scene_objects:
+        <span class="comment"># 公式：Origin + t*Dir = Object</span>
+        t = <span class="func">solve_quadratic</span>(origin, direction, obj)
+        
+        <span class="keyword">if</span> t > 0 <span class="keyword">and</span> t < min_dist:
+            min_dist = t
+            hit_obj = obj
+            
+    <span class="keyword">return</span> hit_obj, min_dist</code></pre>
+            </div>
+            <div>
+                <h4>Ray Marching (Sphere Tracing)</h4>
+                <pre><code class="language-python"><span class="keyword">def</span> <span class="func">ray_march</span>(origin, direction):
+    current_pos = origin
+    total_dist = 0
+    
+    <span class="comment"># 迴圈步進</span>
+    <span class="keyword">for</span> i <span class="keyword">in</span> range(MAX_STEPS):
+        <span class="comment"># SDF: 獲取當前點到場景的最短距離</span>
+        d = <span class="func">get_sdf_scene</span>(current_pos)
+        
+        <span class="keyword">if</span> d < 0.001: <span class="keyword">return</span> <span class="string">"HIT"</span> <span class="comment"># 撞到了</span>
+        <span class="keyword">if</span> total_dist > MAX_DIST: <span class="keyword">break</span>
+        
+        <span class="comment"># 安全跳躍 d 的距離</span>
+        total_dist += d
+        current_pos += direction * d
+        
+    <span class="keyword">return</span> <span class="string">"MISS"</span></code></pre>
+            </div>
+        </div>
+    </section>
+
+    <section id="visualizer">
+        <h2>3. 演算法即時視覺化</h2>
+        <p>請移動滑鼠觀察光線（黃色/白色）如何偵測障礙物（紅色）。</p>
+        <div class="demo-wrapper">
+            <div class="panel">
+                <div class="panel-label">Ray Casting (直接投射)</div>
+                <canvas id="canvasCast"></canvas>
+            </div>
+            <div class="panel">
+                <div class="panel-label">Ray Marching (SDF 步進)</div>
+                <canvas id="canvasMarch"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <section id="action" class="action-area">
+        <h2>4. 實際應用體驗</h2>
+        <p>理解原理後，讓我們看看如何將 Ray Casting 應用於製作第一人稱射擊遊戲的偽 3D 效果。</p>
+        <br>
+        <a href="game.html" class="btn">進入 3D 迷宮遊戲 (Demo)</a>
+    </section>
+
+</div>
+
+<script>
+    // --- 1. 全域設定與狀態 ---
+    const obstacles = [
+        { type: 'circle', x: 0.5, y: 0.3, r: 0.1 },
+        { type: 'box', x: 0.6, y: 0.6, w: 0.15, h: 0.15 },
+        { type: 'circle', x: 0.2, y: 0.7, r: 0.08 }
+    ];
+
+    // 滑鼠位置 (normalized 0.0 ~ 1.0)
+    let mouse = { x: 0.1, y: 0.5 };
+
+    // 用於顯示即時數據
+    let debugData = { castDist: 0, marchSteps: 0 };
+
+    // 安全位置追蹤
+    let safeMousePos = { x: 0.1, y: 0.5 };
+    let isMouseInside = false;
+    const SAFE_DISTANCE = 0.03;
+
+    // 旋轉控制
+    let isMouseDown = false;
+    let pausedAngle = 0;
+
+    // --- 2. SDF (Signed Distance Functions) ---
+    function sdfCircle(p, c, r) {
+        let dx = p.x - c.x;
+        let dy = p.y - c.y;
+        return Math.sqrt(dx*dx + dy*dy) - r;
+    }
+
+    function sdfBox(p, c, s) {
+        let dx = Math.abs(p.x - c.x) - s.w/2;
+        let dy = Math.abs(p.y - c.y) - s.h/2;
+        let outDist = Math.sqrt(Math.max(dx,0)**2 + Math.max(dy,0)**2);
+        return outDist + Math.min(Math.max(dx,dy), 0.0);
+    }
+
+    // 計算場景中最近物體的距離
+    function getSceneSDF(p, aspectRatio) {
+        let minDist = Infinity;
+        obstacles.forEach(obj => {
+            let d = Infinity;
+            let pCorrected = {x: p.x, y: p.y * aspectRatio};
+            let objCorrected = { ...obj, y: obj.y * aspectRatio };
+
+            if(obj.type === 'circle') {
+                d = sdfCircle(pCorrected, objCorrected, obj.r);
+            } else {
+                d = sdfBox(pCorrected, objCorrected, {w: obj.w, h: obj.h * aspectRatio});
+            }
+            if(d < minDist) minDist = d;
+        });
+        return minDist;
+    }
+
+    // 計算場景 SDF 並返回最近物體資訊
+    function getSceneSDFWithInfo(p, aspectRatio) {
+        let minDist = Infinity;
+        let closestObj = null;
+        obstacles.forEach(obj => {
+            let d = Infinity;
+            let pCorrected = {x: p.x, y: p.y * aspectRatio};
+            let objCorrected = { ...obj, y: obj.y * aspectRatio };
+
+            if(obj.type === 'circle') {
+                d = sdfCircle(pCorrected, objCorrected, obj.r);
+            } else {
+                d = sdfBox(pCorrected, objCorrected, {w: obj.w, h: obj.h * aspectRatio});
+            }
+            if(d < minDist) {
+                minDist = d;
+                closestObj = obj;
+            }
+        });
+        return { dist: minDist, obj: closestObj };
+    }
+
+    // 計算 SDF 梯度（法向量）
+    function getSDFGradient(p, aspect) {
+        const eps = 0.001;
+        const dx = getSceneSDF({x: p.x + eps, y: p.y}, aspect) - getSceneSDF({x: p.x - eps, y: p.y}, aspect);
+        const dy = getSceneSDF({x: p.x, y: p.y + eps}, aspect) - getSceneSDF({x: p.x, y: p.y - eps}, aspect);
+        const len = Math.sqrt(dx*dx + dy*dy) || 1;
+        return { x: dx/len, y: dy/len };
+    }
+
+    // 計算安全位置（將位置推出物體外）- 迭代式
+    function getSafePosition(pos, aspect) {
+        let currentPos = { ...pos };
+        let wasInside = false;
+
+        // 迭代推出，最多 10 次
+        for (let i = 0; i < 10; i++) {
+            let dist = getSceneSDF(currentPos, aspect);
+
+            if (dist >= SAFE_DISTANCE) {
+                return { pos: currentPos, wasInside };
+            }
+
+            wasInside = true;
+
+            // 使用 SDF 梯度計算推出方向
+            let grad = getSDFGradient(currentPos, aspect);
+            let pushDist = SAFE_DISTANCE - dist + 0.01;
+
+            currentPos.x += grad.x * pushDist;
+            currentPos.y += grad.y * pushDist;
+
+            // 限制在畫布範圍內
+            currentPos.x = Math.max(0.02, Math.min(0.98, currentPos.x));
+            currentPos.y = Math.max(0.02, Math.min(0.98, currentPos.y));
+        }
+
+        return { pos: currentPos, wasInside };
+    }
+
+    // --- 3. 繪圖核心 ---
+    const c1 = document.getElementById('canvasCast');
+    const c2 = document.getElementById('canvasMarch');
+    const ctx1 = c1.getContext('2d');
+    const ctx2 = c2.getContext('2d');
+
+    // 繪製場景中的障礙物
+    function drawScene(ctx, w, h) {
+        ctx.fillStyle = '#ff4444';
+        obstacles.forEach(obj => {
+            if(obj.type === 'circle') {
+                ctx.beginPath();
+                ctx.arc(obj.x*w, obj.y*h, obj.r*w, 0, Math.PI*2);
+                ctx.fill();
+            } else {
+                ctx.fillRect((obj.x-obj.w/2)*w, (obj.y-obj.h/2)*h, obj.w*w, obj.h*h);
+            }
+        });
+    }
+
+    // 繪製滑鼠反饋（當滑鼠在物體內時）
+    function drawMouseFeedback(ctx, w, h) {
+        if (!isMouseInside) return;
+
+        // 繪製實際滑鼠位置（半透明紅色）
+        ctx.fillStyle = 'rgba(255, 100, 100, 0.6)';
+        ctx.beginPath();
+        ctx.arc(mouse.x * w, mouse.y * h, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 繪製虛線連接實際位置與安全位置
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(mouse.x * w, mouse.y * h);
+        ctx.lineTo(safeMousePos.x * w, safeMousePos.y * h);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // === Ray Casting (左側) ===
+    function runRayCasting(ctx, w, h) {
+        ctx.clearRect(0,0,w,h);
+        drawScene(ctx, w, h);
+
+        // 模擬旋轉射線（按住滑鼠時暫停）
+        const angle = isMouseDown ? pausedAngle : Date.now() / 800;
+        const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(safeMousePos.x*w, safeMousePos.y*h);
+
+        // --- 核心邏輯：步進檢測 ---
+        let t = 0;
+        let hit = false;
+        for(let i=0; i<200; i++) {
+            t += 0.005; // 固定小步長
+            let testX = safeMousePos.x + dir.x * t;
+            let testY = safeMousePos.y + dir.y * t;
+
+            // 簡單碰撞檢測
+            let minDist = Infinity;
+            obstacles.forEach(obj => {
+                if(obj.type === 'circle') {
+                    let d = Math.sqrt((testX-obj.x)**2 + (testY-obj.y)**2);
+                    if(d < obj.r) minDist = 0;
+                } else {
+                    let dx = Math.abs(testX - obj.x);
+                    let dy = Math.abs(testY - obj.y);
+                    if(dx < obj.w/2 && dy < obj.h/2) minDist = 0;
+                }
+            });
+
+            if(minDist === 0) {
+                hit = true;
+                break;
+            }
+            if(testX<0||testX>1||testY<0||testY>1) break;
+        }
+
+        // 繪製射線
+        ctx.lineTo((safeMousePos.x + dir.x * t)*w, (safeMousePos.y + dir.y * t)*h);
+        ctx.stroke();
+
+        // 繪製撞擊點
+        if(hit) {
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc((safeMousePos.x + dir.x * t)*w, (safeMousePos.y + dir.y * t)*h, 4, 0, Math.PI*2);
+            ctx.fill();
+            debugData.castDist = t.toFixed(2);
+        } else {
+            debugData.castDist = "Inf";
+        }
+
+        // 繪製滑鼠源點
+        ctx.fillStyle = '#00ff00';
+        ctx.beginPath(); ctx.arc(safeMousePos.x*w, safeMousePos.y*h, 4, 0, Math.PI*2); ctx.fill();
+
+        // 繪製視覺反饋
+        drawMouseFeedback(ctx, w, h);
+
+        // 繪製文字
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(`Distance: ${debugData.castDist}`, 10, h - 10);
+    }
+
+    // === Ray Marching (右側) ===
+    function runRayMarching(ctx, w, h) {
+        ctx.clearRect(0,0,w,h);
+        drawScene(ctx, w, h);
+
+        const aspect = h/w;
+        const angle = isMouseDown ? pausedAngle : Date.now() / 800; // 同步旋轉（按住滑鼠時暫停）
+        const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+        let rayPos = { ...safeMousePos };
+
+        let totalDist = 0;
+        const maxSteps = 30;
+        let stepsTaken = 0;
+        let hit = false;
+
+        ctx.lineWidth = 1;
+
+        // --- 核心邏輯：Sphere Tracing ---
+        for(let i=0; i<maxSteps; i++) {
+            stepsTaken = i + 1;
+            let dist = getSceneSDF(rayPos, aspect);
+
+            // 判斷命中（包含負值情況）
+            if(dist < 0.005) {
+                hit = true;
+                ctx.fillStyle = '#fff';
+                ctx.fillText("Hit!", rayPos.x*w, rayPos.y*h - 10);
+                break;
+            }
+
+            // 1. 畫出安全半徑圓 (SDF Visualizer) - 確保半徑為正
+            let radius = Math.max(0.001, dist) * w;
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(0, 255, 255, ${0.8 - (i*0.025)})`;
+            ctx.arc(rayPos.x*w, rayPos.y*h, radius, 0, Math.PI*2);
+            ctx.stroke();
+
+            // 2. 標記步進點
+            ctx.fillStyle = '#00ffff';
+            ctx.beginPath(); ctx.arc(rayPos.x*w, rayPos.y*h, 2, 0, Math.PI*2); ctx.fill();
+
+            // 3. 畫出前進路徑線段
+            let nextX = rayPos.x + dir.x * dist;
+            let nextY = rayPos.y + dir.y * dist;
+
+            ctx.beginPath();
+            ctx.strokeStyle = 'white';
+            ctx.moveTo(rayPos.x*w, rayPos.y*h);
+            ctx.lineTo(nextX*w, nextY*h);
+            ctx.stroke();
+
+            // 判斷出界
+            if(rayPos.x < 0 || rayPos.x > 1 || rayPos.y < 0 || rayPos.y > 1) break;
+
+            // 更新位置
+            rayPos.x = nextX;
+            rayPos.y = nextY;
+            totalDist += dist;
+        }
+
+        debugData.marchSteps = stepsTaken;
+
+        // 繪製滑鼠源點
+        ctx.fillStyle = '#00ff00';
+        ctx.beginPath(); ctx.arc(safeMousePos.x*w, safeMousePos.y*h, 4, 0, Math.PI*2); ctx.fill();
+
+        // 繪製視覺反饋
+        drawMouseFeedback(ctx, w, h);
+
+        // 繪製文字
+        ctx.fillStyle = '#aaa';
+        ctx.fillText(`Steps: ${stepsTaken} / Max: ${maxSteps}`, 10, h - 10);
+    }
+
+    // --- 4. 互動控制優化 ---
+    const wrapper = document.querySelector('.demo-wrapper');
+
+    function updateMouse(e) {
+        const rect = wrapper.getBoundingClientRect();
+
+        // 計算相對於整個 Wrapper 的位置 (0 ~ 1)
+        let rawX = (e.clientX - rect.left) / rect.width;
+        let rawY = (e.clientY - rect.top) / rect.height;
+
+        // 限制範圍
+        rawX = Math.max(0, Math.min(1, rawX));
+        rawY = Math.max(0, Math.min(1, rawY));
+
+        // 映射邏輯：左右面板鏡像同步
+        if (rawX <= 0.5) {
+            mouse.x = rawX * 2;
+        } else {
+            mouse.x = (rawX - 0.5) * 2;
+        }
+        mouse.y = rawY;
+    }
+
+    // 每幀更新安全位置
+    function updateSafePosition() {
+        const aspect = c1.height / c1.width || 1;
+        const result = getSafePosition(mouse, aspect);
+        safeMousePos = result.pos;
+        isMouseInside = result.wasInside;
+    }
+
+    wrapper.addEventListener('mousemove', updateMouse);
+    wrapper.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        updateMouse(e.touches[0]);
+    }, {passive: false});
+
+    // 滑鼠按下時暫停旋轉
+    wrapper.addEventListener('mousedown', (e) => {
+        if (e.button === 0) { // 左鍵
+            isMouseDown = true;
+            pausedAngle = Date.now() / 800;
+        }
+    });
+    wrapper.addEventListener('mouseup', (e) => {
+        if (e.button === 0) {
+            isMouseDown = false;
+        }
+    });
+    wrapper.addEventListener('mouseleave', () => {
+        isMouseDown = false;
+    });
+
+    // 觸控支援
+    wrapper.addEventListener('touchstart', (e) => {
+        isMouseDown = true;
+        pausedAngle = Date.now() / 800;
+        updateMouse(e.touches[0]);
+    });
+    wrapper.addEventListener('touchend', () => {
+        isMouseDown = false;
+    });
+
+    // --- 5. 渲染循環與響應式 ---
+    const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            const w = entry.contentRect.width / 2;
+            const h = entry.contentRect.height;
+
+            c1.width = w; c1.height = h;
+            c2.width = w; c2.height = h;
+        }
+    });
+
+    resizeObserver.observe(wrapper);
+
+    function loop() {
+        // 每幀更新安全位置
+        updateSafePosition();
+
+        runRayCasting(ctx1, c1.width, c1.height);
+        runRayMarching(ctx2, c2.width, c2.height);
+        requestAnimationFrame(loop);
+    }
+
+    // 啟動
+    loop();
+</script>
+</body>
+</html>
