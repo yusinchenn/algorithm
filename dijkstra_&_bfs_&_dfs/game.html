@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEON PROTOCOL: Breach</title>
+    <style>
+        /* --- 1. 基礎設定 --- */
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Black+Ops+One&display=swap');
+
+        :root {
+            --bg: #050505;
+            --grid: #151520;
+            --grid-line: #2a2a40;
+            --player: #00f3ff;
+            --enemy: #ff0055;
+            --goal: #ffcc00;
+            --success: #00ff88;
+            
+            /* 可移動區域 */
+            --safe-move-bg: rgba(0, 243, 255, 0.2);
+            --safe-move-border: 1px solid rgba(0, 243, 255, 0.6);
+            
+            /* 危險區域：實心 (致死) */
+            --danger-hard-bg: rgba(255, 0, 85, 0.5); 
+            --danger-hard-pattern: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,0,85,0.3) 5px, rgba(255,0,85,0.3) 10px);
+            
+            /* 偵測區域：框線 (警示) */
+            --danger-soft-border: 1px dashed rgba(255, 0, 85, 0.5);
+            
+            --ui-border: #444;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: #fff;
+            font-family: 'Share Tech Mono', monospace;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .scanlines {
+            position: fixed; pointer-events: none; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            z-index: 99;
+        }
+
+        /* --- UI 介面 --- */
+        header {
+            width: 100%; max-width: 550px;
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 20px; box-sizing: border-box;
+            background: rgba(20, 20, 30, 0.9);
+            border-bottom: 2px solid var(--ui-border);
+            border-top: 2px solid var(--ui-border);
+            margin-bottom: 15px;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.1);
+            z-index: 50;
+        }
+
+        .title-group h1 { margin: 0; font-family: 'Black Ops One'; font-size: 1.4rem; letter-spacing: 2px; color: var(--player); text-shadow: 0 0 10px var(--player); }
+        .title-group span { font-size: 0.7rem; color: #888; letter-spacing: 1px; }
+        
+        .stats { display: flex; gap: 20px; text-align: right; font-size: 0.9rem; }
+        .stat-box { display: flex; flex-direction: column; align-items: flex-end; }
+        .stat-label { font-size: 0.65em; color: #666; letter-spacing: 1px; }
+        .stat-val { color: #fff; font-weight: bold; font-size: 1.2em; }
+        .score-val { color: var(--goal); }
+
+        /* --- 遊戲主體 --- */
+        .game-wrapper {
+            position: relative;
+            padding: 4px;
+            border: 1px solid #333;
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+            background: #000;
+        }
+
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(15, 1fr);
+            gap: 1px;
+            width: 90vw; max-width: 480px;
+            aspect-ratio: 1;
+            background-color: var(--grid-line);
+        }
+
+        .cell {
+            background: var(--grid);
+            position: relative;
+            cursor: default;
+            transition: all 0.1s;
+        }
+
+        /* --- 遊戲物件 --- */
+        .wall { background: #3c4055; box-shadow: inset 0 0 5px #000; z-index: 2; }
+        
+        .player { z-index: 10; }
+        .player::after {
+            content: ''; position: absolute; top: 15%; left: 15%; width: 70%; height: 70%;
+            background: var(--player); border-radius: 50%;
+            box-shadow: 0 0 10px var(--player);
+            animation: breathe 2s infinite;
+        }
+
+        .enemy { z-index: 5; }
+        .enemy::after {
+            content: ''; position: absolute; top: 20%; left: 20%; width: 60%; height: 60%;
+            background: var(--enemy); transform: rotate(45deg);
+            box-shadow: 0 0 10px var(--enemy);
+        }
+
+        .goal { z-index: 4; }
+        .goal::after {
+            content: ''; position: absolute; top: 15%; left: 15%; width: 70%; height: 70%;
+            border: 2px solid var(--goal);
+            box-shadow: 0 0 10px var(--goal);
+            animation: spin 3s linear infinite;
+        }
+
+        /* --- 視覺化圖層 --- */
+        .move-range { 
+            background-color: var(--safe-move-bg); 
+            box-shadow: inset 0 0 0 1px rgba(0, 243, 255, 0.8);
+            cursor: pointer;
+            z-index: 3;
+        }
+        .move-range:hover { 
+            background-color: rgba(0, 243, 255, 0.4); 
+        }
+
+        .danger-hard {
+            background: var(--danger-hard-bg);
+            background-image: var(--danger-hard-pattern);
+            cursor: not-allowed;
+        }
+        .danger-hard::before {
+            content: ''; position: absolute; width: 4px; height: 4px; background: rgba(255,255,255,0.5);
+            top: 50%; left: 50%; transform: translate(-50%,-50%); border-radius: 50%;
+        }
+
+        .danger-soft::after {
+            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border: var(--danger-soft-border);
+            box-sizing: border-box;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* --- 控制與訊息 --- */
+        .controls { 
+            margin-top: 20px; display: flex; gap: 10px; width: 100%; max-width: 480px;
+        }
+        
+        .btn {
+            flex: 1;
+            background: rgba(10,10,15,0.8); 
+            border: 1px solid var(--ui-border); 
+            color: #aaa;
+            padding: 12px; 
+            font-family: 'Share Tech Mono'; 
+            font-size: 0.95rem;
+            cursor: pointer; 
+            text-transform: uppercase;
+            transition: 0.2s;
+        }
+        .btn:hover { background: #fff; color: #000; border-color: #fff; }
+        
+        .btn-primary { border-color: var(--player); color: var(--player); font-weight: bold; }
+        .btn-primary:hover { background: var(--player); color: #000; }
+        
+        .btn-success { border-color: var(--success); color: var(--success); font-weight: bold; }
+        .btn-success:hover { background: var(--success); color: #000; }
+        
+        .btn-secondary { border-color: #666; color: #888; }
+
+        /* Modal Overlays */
+        .overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 5, 8, 0.96); 
+            backdrop-filter: blur(8px);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center; 
+            z-index: 100; text-align: center;
+            padding: 20px;
+            animation: fadeIn 0.3s ease-out;
+        }
+        .hidden { display: none !important; }
+        
+        .modal-content { max-width: 400px; width: 100%; }
+        .overlay h2 { font-size: 2rem; margin: 0 0 15px 0; text-transform: uppercase; letter-spacing: 2px; }
+        .overlay p { line-height: 1.6; color: #ccc; margin-bottom: 25px; font-size: 0.9rem; text-align: left; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 4px; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(0.9); } }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake { 10%, 90% { transform: translate3d(-2px, 0, 0); } 20%, 80% { transform: translate3d(4px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
+        
+        @media (max-width: 500px) {
+            header { padding: 10px; }
+            .title-group h1 { font-size: 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scanlines"></div>
+
+    <header>
+        <div class="title-group">
+            <h1>NEON PROTOCOL</h1>
+            <span>BREACH</span>
+        </div>
+        <div class="stats">
+            <div class="stat-box">
+                <span class="stat-label">LEVEL</span>
+                <span id="level-ui" class="stat-val">1</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">SCORE</span>
+                <span id="score-ui" class="stat-val score-val">0</span>
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">AP</span>
+                <span id="ap-ui" class="stat-val">3</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="game-wrapper" id="game-wrapper">
+        <div id="grid"></div>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-secondary" onclick="window.location.href='visualizer.html'">Exit</button>
+        <button class="btn" onclick="game.restartLevel()">Retry</button>
+        <button class="btn btn-primary" onclick="game.skipTurn()">Skip Turn</button>
+    </div>
+
+    <div id="start-screen" class="overlay">
+        <div class="modal-content">
+            <h2 style="color:var(--player)">Mission Brief</h2>
+            <p>
+                <strong style="color:var(--player)">任務：</strong> 從底部出發，取得頂部的黃色數據包。<br><br>
+                <strong style="color:var(--enemy)">規則：</strong><br>
+                1. 敵人是實體，<b>無法穿過</b>。<br>
+                2. 被圍住無路可走時，任務失敗。<br>
+                3. <span style="color:var(--enemy)">■ 實心紅區</span> 為致死攻擊區。<br>
+            </p>
+            <button class="btn btn-primary" style="width:100%; margin-bottom: 10px;" onclick="game.startGame()">START MISSION</button>
+            <button class="btn btn-secondary" style="width:100%" onclick="window.location.href='visualizer.html'">Return to Tutorial</button>
+        </div>
+    </div>
+
+    <div id="game-over-screen" class="overlay hidden">
+        <div class="modal-content">
+            <h2 id="end-title" style="color:var(--enemy)">SIGNAL LOST</h2>
+            <p id="end-msg" style="text-align: center;">You were intercepted.</p>
+            
+            <div style="margin-bottom: 25px; font-size: 1.2rem;">
+                FINAL SCORE: <span id="final-score" style="color:var(--goal)">0</span>
+            </div>
+
+            <button class="btn btn-primary" style="width:100%; margin-bottom: 10px;" onclick="game.startGame()">RESTART GAME</button>
+            <button class="btn btn-secondary" style="width:100%" onclick="window.location.href='visualizer.html'">EXIT</button>
+        </div>
+    </div>
+
+    <div id="level-clear-screen" class="overlay hidden">
+        <div class="modal-content">
+            <h2 style="color:var(--success)">LEVEL SECURED</h2>
+            <p style="text-align: center; border: 1px solid var(--success);">
+                Data package acquired.<br>
+                Ready for next layer.
+            </p>
+            
+            <div style="margin-bottom: 25px; font-size: 1.2rem;">
+                CURRENT SCORE: <span id="level-score" style="color:var(--goal)">0</span>
+            </div>
+
+            <button class="btn btn-success" style="width:100%; margin-bottom: 10px;" onclick="game.nextLevel()">NEXT LEVEL</button>
+            <button class="btn btn-secondary" style="width:100%" onclick="window.location.href='visualizer.html'">EXIT</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 音效系統 ---
+        const SFX = {
+            ctx: null,
+            init: function() {
+                window.AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+            },
+            play: function(type, fStart, fEnd, dur, vol=0.1) {
+                if (!this.ctx) this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(fStart, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(fEnd, this.ctx.currentTime + dur);
+                gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + dur);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + dur);
+            },
+            move: () => SFX.play('sine', 500, 200, 0.1),
+            invalid: () => SFX.play('square', 100, 50, 0.15, 0.2), 
+            collect: () => SFX.play('sine', 1000, 2000, 0.1),
+            levelClear: () => { 
+                SFX.play('triangle', 440, 554, 0.1); 
+                setTimeout(()=>SFX.play('triangle', 554, 659, 0.1), 100);
+                setTimeout(()=>SFX.play('triangle', 659, 880, 0.4), 200);
+            },
+            die: () => { 
+                SFX.play('sawtooth', 200, 50, 0.5, 0.3);
+                SFX.play('square', 100, 20, 0.5, 0.3);
+            }
+        };
+
+        // --- 遊戲邏輯 ---
+        class Game {
+            constructor() {
+                this.rows = 15;
+                this.cols = 15;
+                this.grid = [];
+                this.level = 1;
+                this.score = 0;
+                
+                this.player = { r: 13, c: 7, maxAp: 3, ap: 3 }; 
+                this.enemies = [];
+                this.goals = [];
+                this.walls = new Set();
+                
+                this.isPlayerTurn = true;
+                this.gridEl = document.getElementById('grid');
+                this.ui = {
+                    level: document.getElementById('level-ui'),
+                    score: document.getElementById('score-ui'),
+                    ap: document.getElementById('ap-ui'),
+                    startScreen: document.getElementById('start-screen'),
+                    gameOverScreen: document.getElementById('game-over-screen'),
+                    levelClearScreen: document.getElementById('level-clear-screen'),
+                    endTitle: document.getElementById('end-title'),
+                    endMsg: document.getElementById('end-msg'),
+                    finalScore: document.getElementById('final-score'),
+                    levelScore: document.getElementById('level-score')
+                };
+            }
+
+            startGame() {
+                SFX.init();
+                this.level = 1;
+                this.score = 0;
+                this.updateScoreUI();
+                this.hideAllOverlays();
+                this.generateLevel();
+            }
+
+            hideAllOverlays() {
+                this.ui.startScreen.classList.add('hidden');
+                this.ui.gameOverScreen.classList.add('hidden');
+                this.ui.levelClearScreen.classList.add('hidden');
+            }
+
+            restartLevel() {
+                this.player.ap = this.player.maxAp;
+                this.hideAllOverlays();
+                this.generateLevel();
+            }
+
+            nextLevel() {
+                this.level++;
+                this.hideAllOverlays();
+                this.generateLevel();
+            }
+
+            generateLevel() {
+                this.gridEl.innerHTML = '';
+                this.walls.clear();
+                this.enemies = [];
+                this.goals = [];
+                this.isPlayerTurn = true;
+                this.player.ap = this.player.maxAp;
+
+                // 1. 生成牆壁
+                for(let r=0; r<this.rows; r++) {
+                    for(let c=0; c<this.cols; c++) {
+                        if (r===0 || c===0 || r===this.rows-1 || c===this.cols-1) {
+                            this.walls.add(`${r},${c}`);
+                        } else if (Math.random() < 0.15) {
+                            this.walls.add(`${r},${c}`);
+                        }
+                    }
+                }
+
+                // 2. 設定玩家位置
+                this.player.r = this.rows - 2;
+                this.player.c = Math.floor(this.cols / 2);
+                this.clearArea(this.player.r, this.player.c);
+
+                // 3. 生成目標
+                let goalR = Math.floor(Math.random() * 3) + 1; 
+                let goalC = Math.floor(Math.random() * (this.cols - 2)) + 1;
+                this.walls.delete(`${goalR},${goalC}`);
+                this.goals.push({ r: goalR, c: goalC });
+                this.clearArea(goalR, goalC);
+
+                // 4. 生成敵人
+                let enemyCount = 2 + Math.floor(this.level / 2);
+                for(let i=0; i<enemyCount; i++) {
+                    let pos = this.getRandomEmptyPos();
+                    if(pos) {
+                        this.enemies.push({ 
+                            r: pos.r, c: pos.c, 
+                            moveRange: 2, 
+                            scanRange: 5
+                        }); 
+                    }
+                }
+
+                // 5. DOM 建立
+                for(let r=0; r<this.rows; r++) {
+                    for(let c=0; c<this.cols; c++) {
+                        let cell = document.createElement('div');
+                        cell.className = 'cell';
+                        cell.onclick = () => this.handleInput(r, c);
+                        if(this.walls.has(`${r},${c}`)) cell.classList.add('wall');
+                        this.gridEl.appendChild(cell);
+                    }
+                }
+                
+                this.ui.level.innerText = this.level;
+                this.ui.ap.innerText = this.player.ap;
+                this.calculateHeatmap();
+            }
+
+            clearArea(r, c) {
+                this.walls.delete(`${r},${c}`);
+                [[0,1],[0,-1],[1,0],[-1,0]].forEach(d => this.walls.delete(`${r+d[0]},${c+d[1]}`));
+            }
+
+            getRandomEmptyPos() {
+                let attempts = 100;
+                while(attempts-- > 0) {
+                    let r = Math.floor(Math.random() * (this.rows-4)) + 2; 
+                    let c = Math.floor(Math.random() * (this.cols-2)) + 1;
+                    if(!this.walls.has(`${r},${c}`) && 
+                       !(r===this.player.r && c===this.player.c) && 
+                       !this.goals.find(g => g.r===r && g.c===c)) {
+                        return {r, c};
+                    }
+                }
+                return null;
+            }
+
+            // --- 尋路與判定 ---
+            
+            isEnemyAt(r, c) {
+                return this.enemies.some(e => e.r === r && e.c === c);
+            }
+
+            // BFS: 計算移動範圍
+            // 修正：增加 isPlayer 參數。如果是玩家尋路，遇到敵人視為障礙物
+            getReachableTiles(startR, startC, maxSteps, isPlayer = false) {
+                let queue = [{r: startR, c: startC, steps: 0}];
+                let visited = new Map();
+                visited.set(`${startR},${startC}`, 0);
+                let reachable = [];
+
+                while(queue.length > 0) {
+                    let curr = queue.shift();
+                    if(curr.steps < maxSteps) {
+                        let neighbors = [
+                            {r:curr.r+1, c:curr.c}, {r:curr.r-1, c:curr.c},
+                            {r:curr.r, c:curr.c+1}, {r:curr.r, c:curr.c-1}
+                        ];
+                        for(let n of neighbors) {
+                            let key = `${n.r},${n.c}`;
+                            // 修正重點：檢查是否有牆壁 OR (如果是玩家)是否有敵人
+                            let blockedByEnemy = isPlayer && this.isEnemyAt(n.r, n.c);
+                            
+                            if(this.isValidTile(n.r, n.c) && !blockedByEnemy && !visited.has(key)) {
+                                visited.set(key, curr.steps + 1);
+                                queue.push({r: n.r, c: n.c, steps: curr.steps + 1});
+                                reachable.push({r: n.r, c: n.c});
+                            }
+                        }
+                    }
+                }
+                return reachable;
+            }
+
+            isValidTile(r, c) {
+                return r>=0 && r<this.rows && c>=0 && c<this.cols && !this.walls.has(`${r},${c}`);
+            }
+
+            calculateThreats() {
+                let hardThreats = new Set();
+                let softThreats = new Set();
+
+                this.enemies.forEach(enemy => {
+                    // 敵人移動不算玩家，所以 isPlayer = false (不擋自己人，雖然這遊戲敵人不重疊)
+                    let moves = this.getReachableTiles(enemy.r, enemy.c, enemy.moveRange, false);
+                    moves.forEach(t => hardThreats.add(`${t.r},${t.c}`));
+
+                    let scans = this.getReachableTiles(enemy.r, enemy.c, enemy.scanRange, false);
+                    scans.forEach(t => {
+                        let key = `${t.r},${t.c}`;
+                        if(!hardThreats.has(key)) softThreats.add(key);
+                    });
+                });
+
+                // 公平協定：確保終點不被完全封死
+                this.goals.forEach(g => {
+                    let neighbors = [{r:g.r+1, c:g.c}, {r:g.r-1, c:g.c}, {r:g.r, c:g.c+1}, {r:g.r, c:g.c-1}];
+                    let validNeighbors = neighbors.filter(n => this.isValidTile(n.r, n.c));
+                    let allBlocked = validNeighbors.every(n => hardThreats.has(`${n.r},${n.c}`));
+
+                    if (validNeighbors.length > 0 && allBlocked) {
+                        validNeighbors.sort((a,b) => b.r - a.r); // 優先解鎖下方
+                        let safeSpot = validNeighbors.find(n => !this.isEnemyAt(n.r, n.c));
+                        if (safeSpot) hardThreats.delete(`${safeSpot.r},${safeSpot.c}`);
+                    }
+                });
+
+                return { hardThreats, softThreats };
+            }
+
+            calculateHeatmap() {
+                document.querySelectorAll('.cell').forEach(el => {
+                    el.classList.remove('move-range', 'danger-hard', 'danger-soft', 'player', 'enemy', 'goal');
+                });
+
+                this.getCell(this.player.r, this.player.c).classList.add('player');
+                this.enemies.forEach(e => this.getCell(e.r, e.c).classList.add('enemy'));
+                this.goals.forEach(g => this.getCell(g.r, g.c).classList.add('goal'));
+
+                let { hardThreats, softThreats } = this.calculateThreats();
+                
+                hardThreats.forEach(key => {
+                    let [r, c] = key.split(',').map(Number);
+                    this.getCell(r, c).classList.add('danger-hard');
+                });
+
+                softThreats.forEach(key => {
+                    let [r, c] = key.split(',').map(Number);
+                    this.getCell(r, c).classList.add('danger-soft');
+                });
+
+                if(this.isPlayerTurn) {
+                    // 修正：玩家 BFS 設為 true，敵人視為牆壁
+                    let moves = this.getReachableTiles(this.player.r, this.player.c, this.player.ap, true);
+                    let validMoves = 0;
+
+                    moves.forEach(m => {
+                        let key = `${m.r},${m.c}`;
+                        if(!hardThreats.has(key)) {
+                            this.getCell(m.r, m.c).classList.add('move-range');
+                            validMoves++;
+                        }
+                    });
+
+                    // 判定：如果沒有任何合法步數 (被牆/敵人/致死區圍死)
+                    if (validMoves === 0) {
+                        this.gameOver("TRAPPED", "You were cornered with no escape.");
+                    }
+                }
+            }
+
+            // --- 互動與流程 ---
+            handleInput(r, c) {
+                if(!this.isPlayerTurn) return;
+                let cell = this.getCell(r, c);
+                if(cell.classList.contains('move-range')) {
+                    this.movePlayer(r, c);
+                } else if (cell.classList.contains('danger-hard')) {
+                    SFX.invalid();
+                    this.flashCell(cell, '#fff');
+                } else if (this.isEnemyAt(r, c)) {
+                    SFX.invalid();
+                    this.flashCell(cell, 'var(--enemy)'); // 撞敵人提示
+                }
+            }
+            
+            flashCell(cell, color) {
+                let orig = cell.style.backgroundColor;
+                cell.style.backgroundColor = color;
+                setTimeout(() => cell.style.backgroundColor = orig, 100);
+            }
+
+            movePlayer(r, c) {
+                this.player.r = r;
+                this.player.c = c;
+                this.player.ap = 0; 
+                this.isPlayerTurn = false;
+                
+                SFX.move();
+                this.checkEvents(); 
+                this.updateView();
+                
+                if(this.goals.length === 0) {
+                     setTimeout(() => this.levelComplete(), 500);
+                     return;
+                }
+                setTimeout(() => this.enemyTurn(), 500);
+            }
+
+            skipTurn() {
+                if(!this.isPlayerTurn) return;
+                this.player.ap = 0;
+                this.isPlayerTurn = false;
+                this.updateView();
+                setTimeout(() => this.enemyTurn(), 500);
+            }
+
+            enemyTurn() {
+                this.enemies.forEach(enemy => {
+                    // AI 尋路：敵人不會刻意避開其他敵人 (簡單碰撞會在下面處理)
+                    let path = this.findPath(enemy, this.player);
+                    if(path && path.length > 0 && path.length <= 5) { 
+                        let next = path[0];
+                        // 簡單防重疊：不走到其他敵人位置
+                        if(!this.isEnemyAt(next.r, next.c)) {
+                            enemy.r = next.r; enemy.c = next.c;
+                        }
+                    } else {
+                        // 隨機徘徊
+                        let adj = [[0,1],[0,-1],[1,0],[-1,0]].map(d => ({r:enemy.r+d[0], c:enemy.c+d[1]}));
+                        let valid = adj.filter(n => this.isValidTile(n.r, n.c) && !this.isEnemyAt(n.r, n.c));
+                        if(valid.length > 0) {
+                            let next = valid[Math.floor(Math.random() * valid.length)];
+                            enemy.r = next.r; enemy.c = next.c;
+                        }
+                    }
+                });
+
+                if (this.checkCollision()) {
+                    this.gameOver("INTERCEPTED", "Enemy unit made contact.");
+                } else {
+                    this.player.ap = this.player.maxAp;
+                    this.isPlayerTurn = true;
+                    this.updateView();
+                }
+            }
+
+            findPath(start, end) {
+                let queue = [start];
+                let visited = new Set([`${start.r},${start.c}`]);
+                let parent = new Map();
+                
+                while(queue.length > 0) {
+                    let curr = queue.shift();
+                    if(curr.r === end.r && curr.c === end.c) {
+                        let path = [];
+                        while(curr !== start) {
+                            path.push(curr);
+                            curr = parent.get(`${curr.r},${curr.c}`);
+                        }
+                        return path.reverse();
+                    }
+                    [[0,1],[0,-1],[1,0],[-1,0]].forEach(d => {
+                        let nr = curr.r + d[0], nc = curr.c + d[1];
+                        let key = `${nr},${nc}`;
+                        // AI 尋路可以穿過其他敵人 (假設協同作戰)，但實際移動時會卡住
+                        if(this.isValidTile(nr, nc) && !visited.has(key)) {
+                            visited.add(key);
+                            parent.set(key, curr);
+                            queue.push({r:nr, c:nc});
+                        }
+                    });
+                }
+                return null;
+            }
+
+            checkEvents() {
+                let idx = this.goals.findIndex(g => g.r === this.player.r && g.c === this.player.c);
+                if(idx !== -1) {
+                    this.goals.splice(idx, 1);
+                    this.score += 100 + (this.level * 10);
+                    SFX.collect();
+                    this.updateScoreUI();
+                }
+            }
+
+            checkCollision() {
+                return this.isEnemyAt(this.player.r, this.player.c);
+            }
+
+            updateScoreUI() { this.ui.score.innerText = this.score; }
+
+            // --- 結算流程 ---
+
+            levelComplete() {
+                SFX.levelClear();
+                this.score += 300;
+                this.updateScoreUI();
+                
+                this.ui.levelScore.innerText = this.score;
+                this.ui.levelClearScreen.classList.remove('hidden');
+            }
+
+            gameOver(title = "SIGNAL LOST", msg = "You were intercepted.") {
+                SFX.die();
+                document.getElementById('game-wrapper').classList.add('shake');
+                setTimeout(() => document.getElementById('game-wrapper').classList.remove('shake'), 500);
+                
+                this.ui.endTitle.innerText = title;
+                this.ui.endMsg.innerText = msg;
+                this.ui.finalScore.innerText = this.score;
+                
+                this.ui.gameOverScreen.classList.remove('hidden');
+            }
+
+            getCell(r, c) { return this.gridEl.children[r * this.cols + c]; }
+            updateView() { 
+                this.calculateHeatmap(); 
+                this.ui.ap.innerText = this.player.ap;
+            }
+        }
+
+        const game = new Game();
+    </script>
+</body>
+</html>
