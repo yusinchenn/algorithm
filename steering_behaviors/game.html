@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Shepherd - 黑洞引力場</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #020205; /* 更深邃的宇宙黑 */
+            font-family: 'Orbitron', sans-serif; 
+            color: #00d2ff; 
+            user-select: none;
+        }
+        canvas { display: block; }
+        
+        /* HUD 介面 */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            text-shadow: 0 0 10px #00d2ff;
+            z-index: 5;
+        }
+        .stat-box {
+            background: rgba(0, 10, 20, 0.7);
+            border: 1px solid #00d2ff;
+            padding: 10px 20px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            display: inline-block;
+            box-shadow: 0 0 10px rgba(0, 210, 255, 0.1);
+        }
+        .label { font-size: 11px; color: #88aaff; display: block; letter-spacing: 1px;}
+        .value { font-size: 24px; font-weight: bold; color: #fff; }
+
+        /* 遊戲開始/結束 覆蓋層 */
+        #overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85); /* 深色半透明背景 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            backdrop-filter: blur(8px);
+            transition: opacity 0.5s;
+        }
+        
+        h1 { 
+            font-size: 3.5rem; 
+            margin: 0 0 10px 0; 
+            background: linear-gradient(90deg, #ff8c00, #ff0080, #bf00ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(191, 0, 255, 0.5);
+            text-align: center;
+        }
+        
+        p { font-size: 1.1rem; color: #ccc; max-width: 600px; text-align: center; line-height: 1.6; margin-bottom: 40px;}
+
+        /* 按鈕群組 */
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
+        }
+
+        /* 主按鈕 (Start) */
+        .btn-primary {
+            padding: 15px 60px;
+            font-size: 1.4rem;
+            background: rgba(0, 210, 255, 0.1);
+            color: #00d2ff;
+            border: 2px solid #00d2ff;
+            border-radius: 50px;
+            cursor: pointer;
+            font-family: 'Orbitron', sans-serif;
+            transition: 0.3s;
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
+            text-transform: uppercase;
+        }
+        .btn-primary:hover {
+            background: #00d2ff;
+            color: #000;
+            box-shadow: 0 0 40px rgba(0, 210, 255, 0.6);
+            transform: scale(1.05);
+        }
+
+        /* 次要按鈕 (Visualizer Link) */
+        .btn-secondary {
+            text-decoration: none;
+            padding: 10px 30px;
+            font-size: 0.9rem;
+            color: #aaa;
+            border: 1px solid #555;
+            border-radius: 50px;
+            transition: 0.3s;
+            font-family: 'Orbitron', sans-serif;
+            background: rgba(0,0,0,0.5);
+        }
+        .btn-secondary:hover {
+            border-color: #fff;
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .hidden { opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <div class="stat-box">
+        <span class="label">ANOMALIES (剩餘)</span>
+        <span class="value" id="score-val">60</span>
+    </div>
+    <div class="stat-box" style="margin-left: 10px;">
+        <span class="label">T-MINUS (時間)</span>
+        <span class="value" id="time-val">00:00</span>
+    </div>
+</div>
+
+<div id="overlay">
+    <h1 id="title-text">EVENT HORIZON</h1>
+    <p id="desc-text">
+        大量量子生物逃逸中。<br>
+        利用你的反重力場 (滑鼠)，將它們驅趕至「黑洞」中進行回收。<br>
+        <span style="font-size: 0.85em; color: #888; display:block; margin-top:10px;">(提示：黑洞引力強大，一旦靠近就無法逃脫)</span>
+    </p>
+    
+    <div class="btn-group">
+        <button id="btn-start" class="btn-primary" onclick="startGame()">INITIATE SEQUENCE</button>
+        <a href="visualizer.html" class="btn-secondary">前往演算法實驗室 (Visualizer)</a>
+    </div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let width, height;
+
+// --- 遊戲狀態 ---
+let gameState = {
+    active: false,
+    startTime: 0,
+    timerInterval: null,
+    totalBoids: 60,
+    capturedCount: 0
+};
+
+// --- Vector Class ---
+class Vector {
+    constructor(x, y) { this.x = x; this.y = y; }
+    add(v) { this.x += v.x; this.y += v.y; return this; }
+    sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+    mult(n) { this.x *= n; this.y *= n; return this; }
+    div(n) { this.x /= n; this.y /= n; return this; }
+    mag() { return Math.sqrt(this.x*this.x + this.y*this.y); }
+    dist(v) { return Math.sqrt(Math.pow(this.x - v.x, 2) + Math.pow(this.y - v.y, 2)); }
+    normalize() {
+        let m = this.mag();
+        if (m !== 0) this.div(m);
+        return this;
+    }
+    limit(max) {
+        if (this.mag() > max) this.normalize().mult(max);
+        return this;
+    }
+    static sub(v1, v2) { return new Vector(v1.x - v2.x, v1.y - v2.y); }
+    copy() { return new Vector(this.x, this.y); }
+}
+
+// --- GoalZone (The Black Hole) ---
+class GoalZone {
+    constructor() {
+        this.pos = new Vector(0, 0);
+        this.r = 60; // 事件視界半徑
+        this.relocate();
+        this.angle = 0;
+    }
+
+    relocate() {
+        this.pos.x = Math.random() * (width - 300) + 150;
+        this.pos.y = Math.random() * (height - 300) + 150;
+    }
+
+    display() {
+        this.angle += 0.03; // 旋轉速度
+
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+
+        // 1. 吸積盤 (Accretion Disk) - 旋轉的光暈
+        ctx.rotate(this.angle);
+        
+        // 建立漸層：透明 -> 橘色 -> 紫色 -> 透明
+        let gradient = ctx.createRadialGradient(0, 0, this.r * 0.8, 0, 0, this.r * 2.5);
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        gradient.addColorStop(0.4, 'rgba(255, 100, 0, 0.6)'); // 熱橘色
+        gradient.addColorStop(0.6, 'rgba(128, 0, 255, 0.4)'); // 紫色
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        // 稍微畫扁一點，製造透視感 (選用)
+        // ctx.ellipse(0, 0, this.r * 2.5, this.r * 2.5, 0, 0, Math.PI * 2);
+        ctx.arc(0, 0, this.r * 2.5, 0, Math.PI*2);
+        ctx.fill();
+
+        // 2. 內部亂流 (Swirls)
+        ctx.strokeStyle = 'rgba(255, 200, 100, 0.3)';
+        ctx.lineWidth = 2;
+        for(let i=0; i<3; i++) {
+            ctx.beginPath();
+            ctx.arc(0, 0, this.r * (1.2 + i*0.3), i + this.angle*2, i + Math.PI + this.angle*2);
+            ctx.stroke();
+        }
+
+        // 3. 事件視界 (Event Horizon) - 純黑中心
+        ctx.restore(); // 恢復旋轉，讓黑洞本體保持正向 (雖然圓形沒差)
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        
+        ctx.fillStyle = '#000';
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = '#bf00ff'; // 紫色光暈
+        ctx.beginPath();
+        ctx.arc(0, 0, this.r, 0, Math.PI*2);
+        ctx.fill();
+
+        // 4. 光子環 (Photon Ring) - 亮白色邊緣
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.r, 0, Math.PI*2);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+}
+
+// --- Boid Class ---
+class Boid {
+    constructor(x, y) {
+        this.pos = new Vector(x, y);
+        this.vel = new Vector(Math.random()*2-1, Math.random()*2-1);
+        this.acc = new Vector(0, 0);
+        this.maxSpeed = 5; 
+        this.maxForce = 0.2;
+        this.r = 4;
+        this.captured = false;
+        this.captureAnim = 0;
+    }
+
+    applyForce(force) {
+        this.acc.add(force);
+    }
+
+    flock(boids) {
+        if (this.captured) return;
+
+        let sep = this.separate(boids);
+        let ali = this.align(boids);
+        let coh = this.cohesion(boids);
+        let predator = this.avoidPredator(mouse);
+
+        sep.mult(2.5);  // 分離權重高，避免重疊
+        ali.mult(1.0);
+        coh.mult(1.2);
+        predator.mult(4.0); // 玩家斥力
+
+        this.applyForce(sep);
+        this.applyForce(ali);
+        this.applyForce(coh);
+        this.applyForce(predator);
+    }
+
+    update() {
+        if (this.captured) {
+            // 被黑洞吸入動畫 (Spaghettification)
+            let dir = Vector.sub(goal.pos, this.pos);
+            let dist = dir.mag();
+            dir.normalize();
+            
+            // 越靠近中心吸得越快
+            dir.mult(5 + (1 - this.captureAnim) * 5); 
+            this.pos.add(dir);
+            
+            // 旋轉吸入效果
+            let angle = Math.atan2(dir.y, dir.x);
+            this.pos.x += Math.cos(angle + Math.PI/2) * 2;
+            this.pos.y += Math.sin(angle + Math.PI/2) * 2;
+
+            this.captureAnim += 0.05;
+            return;
+        }
+
+        this.vel.add(this.acc);
+        this.vel.limit(this.maxSpeed);
+        this.pos.add(this.vel);
+        this.acc.mult(0);
+
+        // 黑洞引力判定 (比原本的圓圈稍微大一點就開始吸)
+        let distToHole = this.pos.dist(goal.pos);
+        if (distToHole < goal.r * 1.5) {
+            // 增加一個強大的引力把 boid 拉向中心，如果太近則判定捕獲
+            if (distToHole < goal.r * 0.8) {
+                this.captured = true;
+                updateScore();
+            } else {
+                // 事件視界邊緣的強引力
+                let suction = Vector.sub(goal.pos, this.pos);
+                suction.normalize();
+                suction.mult(0.8); // 額外吸力
+                this.applyForce(suction);
+            }
+        }
+
+        this.borders();
+    }
+
+    // Steering Behaviors
+    separate(boids) {
+        let desiredSeparation = 20.0;
+        let steer = new Vector(0, 0);
+        let count = 0;
+        for (let other of boids) {
+            if (other.captured) continue;
+            let d = this.pos.dist(other.pos);
+            if ((d > 0) && (d < desiredSeparation)) {
+                let diff = Vector.sub(this.pos, other.pos);
+                diff.normalize(); diff.div(d);
+                steer.add(diff); count++;
+            }
+        }
+        if (count > 0) steer.div(count);
+        if (steer.mag() > 0) {
+            steer.normalize(); steer.mult(this.maxSpeed); steer.sub(this.vel); steer.limit(this.maxForce);
+        }
+        return steer;
+    }
+
+    align(boids) {
+        let neighborDist = 50;
+        let sum = new Vector(0, 0);
+        let count = 0;
+        for (let other of boids) {
+            if (other.captured) continue;
+            let d = this.pos.dist(other.pos);
+            if ((d > 0) && (d < neighborDist)) {
+                sum.add(other.vel); count++;
+            }
+        }
+        if (count > 0) {
+            sum.div(count); sum.normalize(); sum.mult(this.maxSpeed);
+            let steer = Vector.sub(sum, this.vel); steer.limit(this.maxForce);
+            return steer;
+        }
+        return new Vector(0, 0);
+    }
+
+    cohesion(boids) {
+        let neighborDist = 50;
+        let sum = new Vector(0, 0);
+        let count = 0;
+        for (let other of boids) {
+            if (other.captured) continue;
+            let d = this.pos.dist(other.pos);
+            if ((d > 0) && (d < neighborDist)) {
+                sum.add(other.pos); count++;
+            }
+        }
+        if (count > 0) {
+            sum.div(count); return this.seek(sum);
+        }
+        return new Vector(0, 0);
+    }
+
+    seek(target) {
+        let desired = Vector.sub(target, this.pos);
+        desired.normalize(); desired.mult(this.maxSpeed);
+        let steer = Vector.sub(desired, this.vel); steer.limit(this.maxForce);
+        return steer;
+    }
+
+    avoidPredator(target) {
+        let fearRadius = 150;
+        let d = this.pos.dist(target);
+        if (d < fearRadius) {
+            let diff = Vector.sub(this.pos, target);
+            diff.normalize(); diff.mult(this.maxSpeed);
+            let steer = Vector.sub(diff, this.vel);
+            steer.limit(this.maxForce * 2.5);
+            return steer;
+        }
+        return new Vector(0, 0);
+    }
+
+    borders() {
+        if (this.pos.x < -this.r) this.pos.x = width + this.r;
+        if (this.pos.y < -this.r) this.pos.y = height + this.r;
+        if (this.pos.x > width + this.r) this.pos.x = -this.r;
+        if (this.pos.y > height + this.r) this.pos.y = -this.r;
+    }
+
+    display() {
+        if (this.captureAnim > 1) return;
+
+        let angle = Math.atan2(this.vel.y, this.vel.x);
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(angle);
+
+        if (!this.captured) {
+            // 正常：青藍色
+            ctx.fillStyle = '#00d2ff';
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#00d2ff';
+            
+            ctx.beginPath();
+            ctx.moveTo(this.r * 2, 0);
+            ctx.lineTo(-this.r, -this.r);
+            ctx.lineTo(-this.r, this.r);
+            ctx.fill();
+        } else {
+            // 被捕獲：變為紫色/白色，並被拉長
+            let scale = 1 - this.captureAnim;
+            ctx.scale(scale * 2, scale * 0.5); // 拉長效果
+            ctx.fillStyle = '#fff';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#bf00ff';
+            
+            ctx.beginPath();
+            ctx.arc(0, 0, this.r, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+}
+
+// --- Main System ---
+let flock = [];
+let goal;
+let mouse = new Vector(-999, -999);
+
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+    if(goal) goal.relocate();
+}
+window.onresize = resize;
+resize();
+
+function initGame() {
+    flock = [];
+    gameState.capturedCount = 0;
+    document.getElementById('score-val').innerText = gameState.totalBoids;
+    
+    goal = new GoalZone();
+    for (let i = 0; i < gameState.totalBoids; i++) {
+        let b = new Boid(Math.random()*width, Math.random()*height);
+        // 確保不生成在黑洞太近的地方
+        if(b.pos.dist(goal.pos) < 300) {
+            b.pos.x = (goal.pos.x + width/2) % width;
+            b.pos.y = (goal.pos.y + height/2) % height;
+        }
+        flock.push(b);
+    }
+}
+
+function startGame() {
+    document.getElementById('overlay').classList.add('hidden');
+    initGame();
+    gameState.active = true;
+    gameState.startTime = Date.now();
+    
+    if(gameState.timerInterval) clearInterval(gameState.timerInterval);
+    gameState.timerInterval = setInterval(() => {
+        if(!gameState.active) return;
+        let delta = Math.floor((Date.now() - gameState.startTime) / 1000);
+        let m = Math.floor(delta / 60).toString().padStart(2, '0');
+        let s = (delta % 60).toString().padStart(2, '0');
+        document.getElementById('time-val').innerText = `${m}:${s}`;
+    }, 1000);
+}
+
+function updateScore() {
+    gameState.capturedCount++;
+    let remaining = gameState.totalBoids - gameState.capturedCount;
+    document.getElementById('score-val').innerText = remaining;
+
+    if (remaining <= 0) {
+        gameOver();
+    }
+}
+
+function gameOver() {
+    gameState.active = false;
+    clearInterval(gameState.timerInterval);
+    
+    let finalTime = document.getElementById('time-val').innerText;
+    
+    document.getElementById('title-text').innerText = "SINGULARITY REACHED";
+    document.getElementById('desc-text').innerHTML = 
+        `任務完成。<br>耗時: <span style="color:#bf00ff; font-size:1.5em; font-weight:bold;">${finalTime}</span><br>所有異常點已回歸奇點。`;
+    
+    // 更新主按鈕文字
+    document.getElementById('btn-start').innerText = "RESTART MISSION";
+    
+    document.getElementById('overlay').classList.remove('hidden');
+}
+
+canvas.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+}, {passive: false});
+
+function animate() {
+    // 太空背景 - 帶有一點點紫色拖尾
+    ctx.fillStyle = 'rgba(2, 2, 5, 0.3)'; 
+    ctx.fillRect(0, 0, width, height);
+
+    if (gameState.active) {
+        // 1. 黑洞
+        goal.display();
+
+        // 2. 玩家斥力場
+        ctx.strokeStyle = 'rgba(255, 50, 50, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#ff3333';
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 15, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.shadowBlur = 0; // 重置光暈，避免影響全域
+        
+        ctx.beginPath();
+        ctx.arc(mouse.x, mouse.y, 150, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(255, 50, 50, 0.15)';
+        ctx.setLineDash([5, 15]); // 虛線效果
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 3. 生物群
+        for (let boid of flock) {
+            boid.flock(flock);
+            boid.update();
+            boid.display();
+        }
+    } else {
+        // 背景動畫 (未開始時)
+        if(flock.length === 0) initGame();
+        goal.display(); // 黑洞也要轉
+        for (let boid of flock) {
+            boid.pos.add(boid.vel); // 簡單移動
+            boid.borders();
+            boid.display();
+        }
+    }
+    
+    requestAnimationFrame(animate);
+}
+
+animate();
+
+</script>
+</body>
+</html>

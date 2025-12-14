@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steering Behaviors: 演算法互動教學</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #e0e0e0;
+            --accent: #00d2ff;
+            --accent-hover: #33e0ff;
+            --code-bg: #2d2d2d;
+            --border: #333;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+        }
+
+        /* Container Layout */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 40px;
+        }
+
+        h1 { margin: 0; font-size: 2.5rem; color: var(--accent); }
+        h2 { border-left: 4px solid var(--accent); padding-left: 15px; margin-top: 40px; color: #fff; }
+        p { color: #bbb; margin-bottom: 1.5rem; }
+
+        /* Section 1: Concepts */
+        .concept-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .concept-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .concept-card h3 { color: var(--accent); margin-top: 0; }
+
+        /* Section 2: Code */
+        .code-block {
+            background: var(--code-bg);
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            border-left: 4px solid #ff0055;
+        }
+        .keyword { color: #ff79c6; }
+        .func { color: #8be9fd; }
+        .comment { color: #6272a4; }
+
+        /* Section 3: Visualizer Container */
+        .canvas-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            margin: 20px 0;
+            border: 1px solid var(--border);
+        }
+        
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 500px; /* 固定高度 */
+            cursor: crosshair;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+            justify-content: center;
+        }
+
+        button {
+            background: var(--card-bg);
+            color: white;
+            border: 1px solid var(--border);
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+            font-weight: bold;
+        }
+        button:hover { background: #333; }
+        button.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+        .legend {
+            text-align: center;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--card-bg);
+            border-radius: 4px;
+        }
+        .legend span { margin: 0 10px; display: inline-block; }
+
+        /* Section 4: Link */
+        .game-link-card {
+            background: linear-gradient(45deg, #1e1e1e, #2a2a2a);
+            padding: 40px;
+            text-align: center;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-top: 20px;
+        }
+        .btn-large {
+            display: inline-block;
+            background: var(--accent);
+            color: #000;
+            text-decoration: none;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 50px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 20px;
+        }
+        .btn-large:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 210, 255, 0.4);
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 600px) {
+            h1 { font-size: 1.8rem; }
+            #canvas { height: 350px; }
+            .legend span { display: block; margin: 5px 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>Steering Behaviors</h1>
+        <p>Craig Reynolds 的群體移動行為演算法解析與視覺化</p>
+    </header>
+
+    <section id="section-1">
+        <h2>第 1 節：什麼是群體移動行為？</h2>
+        <p>Steering Behaviors 是一套用來模擬自然生物移動的演算法。不同於傳統的「路徑搜尋 (Pathfinding)」或「腳本動畫」，它透過計算當前的物理「力 (Force)」，讓角色產生平滑、逼真的移動軌跡。</p>
+        
+        <div class="concept-grid">
+            <div class="concept-card">
+                <h3>Seek (追逐)</h3>
+                <p>計算從當前位置指向目標的向量，並施加推力。這就像飛彈追蹤目標一樣。</p>
+            </div>
+            <div class="concept-card">
+                <h3>Flee (逃離)</h3>
+                <p>Seek 的相反行為。當目標進入特定範圍時，產生反向推力遠離它。</p>
+            </div>
+            <div class="concept-card">
+                <h3>Arrive (抵達)</h3>
+                <p>在接近目標時自動減速。這是為了解決 Seek 行為容易「衝過頭」並產生震盪的問題。</p>
+            </div>
+            <div class="concept-card">
+                <h3>Wander (隨機)</h3>
+                <p>在角色前方投射一個虛擬圓圈，並在圓上隨機選點，讓移動看起來像是在「巡邏」。</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="section-2">
+        <h2>第 2 節：核心程式碼邏輯</h2>
+        <p>這套演算法的核心在於牛頓運動定律的簡化應用。我們不直接修改位置，而是透過修改「力」來影響「速度」，最後才更新「位置」。</p>
+        <p>核心公式：<code>轉向力 = 期望速度 - 當前速度</code></p>
+        
+        <div class="code-block">
+            <span class="keyword">function</span> <span class="func">seek</span>(target) {<br>
+            &nbsp;&nbsp;<span class="comment">// 1. 計算期望速度向量 (從自己指向目標)</span><br>
+            &nbsp;&nbsp;<span class="keyword">let</span> desired = target.sub(position);<br>
+            <br>
+            &nbsp;&nbsp;<span class="comment">// 2. 將期望速度標準化並設定為最大速度</span><br>
+            &nbsp;&nbsp;desired.normalize();<br>
+            &nbsp;&nbsp;desired.mult(maxSpeed);<br>
+            <br>
+            &nbsp;&nbsp;<span class="comment">// 3. 計算轉向力 (Reynolds 公式)</span><br>
+            &nbsp;&nbsp;<span class="keyword">let</span> steer = desired.sub(velocity);<br>
+            &nbsp;&nbsp;steer.limit(maxForce); <span class="comment">// 限制最大受力</span><br>
+            <br>
+            &nbsp;&nbsp;<span class="keyword">return</span> steer;<br>
+            }
+        </div>
+    </section>
+
+    <section id="section-3">
+        <h2>第 3 節：演算法視覺化演示</h2>
+        <p>下方的互動視窗展示了四種基礎行為。請嘗試切換模式並移動滑鼠。</p>
+        
+        <div class="controls">
+            <button onclick="setMode('seek')" id="btn-seek" class="active">Seek</button>
+            <button onclick="setMode('flee')" id="btn-flee">Flee</button>
+            <button onclick="setMode('arrive')" id="btn-arrive">Arrive</button>
+            <button onclick="setMode('wander')" id="btn-wander">Wander</button>
+        </div>
+        
+        <div class="canvas-wrapper" id="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+        
+        <div class="legend">
+            <span style="color: #00ff00;">● 綠線：當前速度 (Velocity)</span>
+            <span style="color: #ff3333;">● 紅線：轉向力 (Steering Force)</span>
+            <span style="color: #ffff00;">● 黃點：目標 (Target)</span>
+            <div style="font-size: 0.8rem; color: #888; margin-top: 5px;">
+                (紅線已放大 1000 倍以利觀察)
+            </div>
+        </div>
+        <p id="mode-desc" style="text-align: center; margin-top: 10px; color: var(--accent);">
+            當前模式：Seek (全速衝向目標)
+        </p>
+    </section>
+
+    <section id="section-4">
+        <h2>第 4 節：實際應用體驗</h2>
+        <p>理解了單體行為後，我們將結合 <b>Separation (分離)</b>、<b>Alignment (對齊)</b> 與 <b>Cohesion (凝聚)</b> 來實現複雜的群體模擬。</p>
+        
+        <div class="game-link-card">
+            <h3 style="margin-top:0; color:white;">Flocking Simulation Game</h3>
+            <p>在另一個頁面中體驗完整的群集演算法。<br>扮演掠食者，觀察魚群如何互動、躲避與重組。</p>
+            <a href="game.html" class="btn-large">前往互動體驗 →</a>
+        </div>
+    </section>
+
+    <footer style="text-align: center; padding: 40px 0; font-size: 0.8rem; color: #555;">
+        Visualizer Implementation based on Craig Reynolds' Steering Behaviors.
+    </footer>
+</div>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvas-container');
+    
+    let width, height;
+
+    // --- Vector Class ---
+    class Vector {
+        constructor(x, y) { this.x = x; this.y = y; }
+        add(v) { this.x += v.x; this.y += v.y; return this; }
+        sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+        mult(n) { this.x *= n; this.y *= n; return this; }
+        div(n) { this.x /= n; this.y /= n; return this; }
+        mag() { return Math.sqrt(this.x*this.x + this.y*this.y); }
+        normalize() {
+            let m = this.mag();
+            if (m !== 0) this.div(m);
+            return this;
+        }
+        limit(max) {
+            if (this.mag() > max) this.normalize().mult(max);
+            return this;
+        }
+        static sub(v1, v2) { return new Vector(v1.x - v2.x, v1.y - v2.y); }
+        copy() { return new Vector(this.x, this.y); }
+    }
+
+    // --- Vehicle Class ---
+    class Vehicle {
+        constructor(x, y) {
+            this.pos = new Vector(x, y);
+            this.vel = new Vector(0, 0);
+            this.acc = new Vector(0, 0);
+            this.maxSpeed = 5;
+            this.maxForce = 0.15;
+            this.r = 8;
+            this.wanderTheta = 0;
+            this.currentSteerForce = new Vector(0, 0);
+        }
+
+        applyForce(force) {
+            this.acc.add(force);
+        }
+
+        update() {
+            this.vel.add(this.acc);
+            this.vel.limit(this.maxSpeed);
+            this.pos.add(this.vel);
+            this.acc.mult(0);
+
+            // 邊界環繞
+            if (this.pos.x < -this.r) this.pos.x = width + this.r;
+            if (this.pos.y < -this.r) this.pos.y = height + this.r;
+            if (this.pos.x > width + this.r) this.pos.x = -this.r;
+            if (this.pos.y > height + this.r) this.pos.y = -this.r;
+        }
+
+        seek(target) {
+            let desired = Vector.sub(target, this.pos);
+            desired.normalize();
+            desired.mult(this.maxSpeed);
+            let steer = Vector.sub(desired, this.vel);
+            steer.limit(this.maxForce);
+            return steer;
+        }
+
+        flee(target) {
+            let desired = Vector.sub(target, this.pos);
+            desired.normalize();
+            desired.mult(this.maxSpeed);
+            desired.mult(-1); 
+            let steer = Vector.sub(desired, this.vel);
+            steer.limit(this.maxForce);
+            return steer;
+        }
+
+        arrive(target) {
+            let desired = Vector.sub(target, this.pos);
+            let d = desired.mag();
+            desired.normalize();
+            if (d < 100) {
+                let m = (d / 100) * this.maxSpeed;
+                desired.mult(m);
+            } else {
+                desired.mult(this.maxSpeed);
+            }
+            let steer = Vector.sub(desired, this.vel);
+            steer.limit(this.maxForce);
+            return steer;
+        }
+
+        wander() {
+            let wanderR = 25;
+            let wanderD = 80;
+            let change = 0.3;
+            this.wanderTheta += Math.random() * change * 2 - change;
+
+            let circlePos = this.vel.copy();
+            circlePos.normalize();
+            circlePos.mult(wanderD);
+            circlePos.add(this.pos);
+
+            let offset = new Vector(wanderR * Math.cos(this.wanderTheta), wanderR * Math.sin(this.wanderTheta));
+            let target = circlePos.copy().add(offset);
+            
+            // 繪製 Wander 輔助
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+            ctx.beginPath(); ctx.arc(circlePos.x, circlePos.y, wanderR, 0, Math.PI*2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(this.pos.x, this.pos.y); ctx.lineTo(circlePos.x, circlePos.y); ctx.stroke();
+            ctx.fillStyle = "yellow"; ctx.beginPath(); ctx.arc(target.x, target.y, 3, 0, Math.PI*2); ctx.fill();
+
+            return this.seek(target);
+        }
+
+        display() {
+            let angle = Math.atan2(this.vel.y, this.vel.x);
+            ctx.save();
+            ctx.translate(this.pos.x, this.pos.y);
+            ctx.rotate(angle);
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.moveTo(this.r * 2, 0);
+            ctx.lineTo(-this.r, -this.r);
+            ctx.lineTo(-this.r, this.r);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+
+        displayVectors() {
+            // 速度 (綠色)
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(this.pos.x, this.pos.y);
+            ctx.lineTo(this.pos.x + this.vel.x * 15, this.pos.y + this.vel.y * 15);
+            ctx.stroke();
+
+            // 轉向力 (紅色) - 放大顯示
+            if(this.currentSteerForce.mag() > 0.001) {
+                ctx.strokeStyle = '#ff3333';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(this.pos.x, this.pos.y);
+                ctx.lineTo(
+                    this.pos.x + this.currentSteerForce.x * 1000, 
+                    this.pos.y + this.currentSteerForce.y * 1000
+                );
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+        }
+    }
+
+    // --- Main Logic ---
+    let vehicle;
+    let mouse = new Vector(0, 0);
+    let currentMode = 'seek';
+    
+    // 初始化與縮放
+    function resize() {
+        // 抓取 container 的寬度，而不是 window
+        width = canvas.width = container.clientWidth;
+        height = canvas.height = container.clientHeight; // CSS 設定了 500px 或響應式高度
+        if(!vehicle) vehicle = new Vehicle(width/2, height/2);
+    }
+    
+    window.addEventListener('resize', resize);
+    resize();
+
+    // 修正後的滑鼠監聽，需考慮 Canvas 在頁面中的 Offset
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+    });
+
+    // 手機觸控支援
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault(); // 防止滾動
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches[0];
+        mouse.x = touch.clientX - rect.left;
+        mouse.y = touch.clientY - rect.top;
+    }, { passive: false });
+
+    function setMode(mode) {
+        currentMode = mode;
+        document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+        document.getElementById('btn-' + mode).classList.add('active');
+        
+        let text = "";
+        const descEl = document.getElementById('mode-desc');
+        if(mode === 'seek') text = "當前模式：Seek (全速衝向目標)";
+        if(mode === 'flee') text = "當前模式：Flee (盡全力遠離目標)";
+        if(mode === 'arrive') text = "當前模式：Arrive (接近目標時自動減速)";
+        if(mode === 'wander') text = "當前模式：Wander (隨機自然漫步)";
+        descEl.innerText = text;
+    }
+
+    function loop() {
+        // 清除畫布
+        ctx.fillStyle = '#000'; // 配合背景色
+        ctx.fillRect(0, 0, width, height);
+
+        // 繪製滑鼠目標
+        if (currentMode !== 'wander') {
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+            ctx.beginPath();
+            ctx.arc(mouse.x, mouse.y, 10, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = '#ffff00';
+            ctx.beginPath();
+            ctx.arc(mouse.x, mouse.y, 3, 0, Math.PI*2);
+            ctx.fill();
+        }
+
+        let steerForce;
+        switch (currentMode) {
+            case 'seek': steerForce = vehicle.seek(mouse); break;
+            case 'flee': steerForce = vehicle.flee(mouse); break;
+            case 'arrive': steerForce = vehicle.arrive(mouse); break;
+            case 'wander': steerForce = vehicle.wander(); break;
+        }
+
+        vehicle.currentSteerForce = steerForce.copy();
+        vehicle.applyForce(steerForce);
+        vehicle.update();
+        vehicle.display();
+        vehicle.displayVectors();
+
+        requestAnimationFrame(loop);
+    }
+
+    loop();
+</script>
+
+</body>
+</html>
