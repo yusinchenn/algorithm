@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animation Interpolation 演算法圖解</title>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-color: #e0e0e0;
+            --accent-lerp: #ff5252;
+            --accent-smooth: #69f0ae;
+            --accent-slerp: #448aff;
+            --code-bg: #2d2d2d;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* 通用標題樣式 */
+        h1, h2, h3 { color: #fff; margin-bottom: 0.5em; }
+        h1 { text-align: center; font-weight: 300; font-size: 2.5rem; margin: 40px 0; }
+        h2 { border-left: 4px solid #fff; padding-left: 15px; margin-top: 60px; font-size: 1.8rem; }
+        p { color: #b0b0b0; margin-bottom: 1.5rem; }
+
+        /* Section 1: 介紹 */
+        .intro-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .intro-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            border-top: 3px solid #555;
+        }
+        .intro-card strong { color: #fff; display: block; font-size: 1.2rem; margin-bottom: 10px; }
+
+        /* Section 2: 程式碼 */
+        .code-block {
+            background: var(--code-bg);
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto; /* 手機版溢出時可捲動 */
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            border: 1px solid #444;
+            color: #dcdcdc;
+            margin-bottom: 20px;
+        }
+        .code-comment { color: #6a9955; }
+        .code-keyword { color: #569cd6; }
+        .code-fn { color: #dcdcaa; }
+
+        /* Section 3: 視覺化演示 */
+        .controls {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background 0.2s;
+        }
+        button:hover { background: #0056b3; }
+
+        .viz-container {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .viz-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            width: 300px; /* 固定寬度保持排版整齊 */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            border: 1px solid #444;
+            text-align: center;
+        }
+        .canvas-box {
+            position: relative;
+            width: 260px;
+            height: 260px;
+            margin: 0 auto;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #444;
+            margin-top: 15px;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-fill { height: 100%; width: 0%; transition: width 0.1s linear; }
+
+        /* Section 4: 實戰按鈕 */
+        .cta-section {
+            text-align: center;
+            margin: 80px 0;
+            padding: 40px;
+            background: linear-gradient(135deg, #1e1e1e 0%, #252525 100%);
+            border-radius: 16px;
+        }
+        .btn-game {
+            display: inline-block;
+            text-decoration: none;
+            background: linear-gradient(90deg, #448aff, #69f0ae);
+            color: #000;
+            font-weight: bold;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-size: 1.2rem;
+            margin-top: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn-game:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(105, 240, 174, 0.4);
+        }
+
+        /* 顏色定義類別 */
+        .c-lerp { color: var(--accent-lerp); border-color: var(--accent-lerp); }
+        .c-smooth { color: var(--accent-smooth); border-color: var(--accent-smooth); }
+        .c-slerp { color: var(--accent-slerp); border-color: var(--accent-slerp); }
+        
+        .border-top-lerp { border-top: 4px solid var(--accent-lerp); }
+        .border-top-smooth { border-top: 4px solid var(--accent-smooth); }
+        .border-top-slerp { border-top: 4px solid var(--accent-slerp); }
+
+        .bg-lerp { background: var(--accent-lerp); }
+        .bg-smooth { background: var(--accent-smooth); }
+        .bg-slerp { background: var(--accent-slerp); }
+
+        /* 手機版微調 */
+        @media (max-width: 600px) {
+            h1 { font-size: 2rem; }
+            .viz-card { width: 100%; }
+            .canvas-box { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <h1>Animation Interpolation<br><span style="font-size: 0.6em; color: #888;">補間演算法視覺化指南</span></h1>
+
+    <section>
+        <h2>01. 什麼是補間演算法？</h2>
+        <p>補間（Interpolation）是計算機圖學與動畫的核心。它負責計算「起點」與「終點」之間，在任意時間進度下的中間狀態。選擇不同的演算法，會決定動畫的「質感」與「物理正確性」。</p>
+        
+        <div class="intro-grid">
+            <div class="intro-card border-top-lerp">
+                <strong class="c-lerp">Lerp (線性插值)</strong>
+                機械式的等速移動。計算最快，適用於顏色混合或簡單位移。
+            </div>
+            <div class="intro-card border-top-smooth">
+                <strong class="c-smooth">Smoothstep (S型曲線)</strong>
+                模擬物理慣性，起步慢、中間快、煞車慢。適用於 UI 彈跳與自然的運鏡。
+            </div>
+            <div class="intro-card border-top-slerp">
+                <strong class="c-slerp">Slerp (球型插值)</strong>
+                沿著球體表面走最短路徑的圓弧。適用於 3D 物體旋轉與骨骼動畫，避免變形。
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>02. 核心程式碼實作 (JS)</h2>
+        <p>以下是三個演算法在程式中的數學實現。<code>t</code> 代表進度，範圍通常為 0.0 到 1.0。</p>
+
+        <h3 class="c-lerp">Linear Interpolation</h3>
+        <div class="code-block">
+<pre><code><span class="code-keyword">function</span> <span class="code-fn">lerp</span>(start, end, t) {
+    <span class="code-comment">// 公式：start + (end - start) * t</span>
+    <span class="code-keyword">return</span> start * (1 - t) + end * t;
+}</code></pre>
+        </div>
+
+        <h3 class="c-smooth">Smoothstep Function</h3>
+        <div class="code-block">
+<pre><code><span class="code-keyword">function</span> <span class="code-fn">smoothstep</span>(t) {
+    <span class="code-comment">// 將線性的 t 轉換為 S 型曲線的 t</span>
+    <span class="code-comment">// 公式：3t^2 - 2t^3</span>
+    <span class="code-keyword">return</span> t * t * (3 - 2 * t);
+}
+
+<span class="code-comment">// 用法：let pos = lerp(a, b, smoothstep(t));</span></code></pre>
+        </div>
+
+        <h3 class="c-slerp">Spherical Linear Interpolation (Concept)</h3>
+        <div class="code-block">
+<pre><code><span class="code-keyword">function</span> <span class="code-fn">slerp</span>(q1, q2, t) {
+    <span class="code-comment">// 計算兩向量夾角 omega</span>
+    <span class="code-keyword">let</span> cosOmega = dot(q1, q2);
+    <span class="code-keyword">let</span> omega = Math.acos(cosOmega);
+    
+    <span class="code-comment">// 利用正弦定理計算權重</span>
+    <span class="code-keyword">let</span> wa = Math.sin((1 - t) * omega) / Math.sin(omega);
+    <span class="code-keyword">let</span> wb = Math.sin(t * omega) / Math.sin(omega);
+    
+    <span class="code-keyword">return</span> q1 * wa + q2 * wb;
+}</code></pre>
+        </div>
+    </section>
+
+    <section>
+        <h2>03. 演算法實驗室</h2>
+        <p>觀察下方三個小球的運動軌跡與速度變化。點擊播放按鈕開始。</p>
+        
+        <div class="controls">
+            <div>當前時間 (t): <span id="timeDisplay" style="font-family: monospace; font-size: 1.2rem;">0.00</span></div>
+            <button id="btnPlay">▶ 播放動畫</button>
+        </div>
+
+        <div class="viz-container">
+            <div class="viz-card border-top-lerp">
+                <h3 class="c-lerp">Lerp</h3>
+                <div class="canvas-box">
+                    <canvas id="canvasLerp"></canvas>
+                </div>
+                <div class="progress-bar"><div class="progress-fill bg-lerp" id="barLerp"></div></div>
+                <p style="margin-top:10px; font-size:0.9rem;">直線、等速</p>
+            </div>
+
+            <div class="viz-card border-top-smooth">
+                <h3 class="c-smooth">Smoothstep</h3>
+                <div class="canvas-box">
+                    <canvas id="canvasSmooth"></canvas>
+                </div>
+                <div class="progress-bar"><div class="progress-fill bg-smooth" id="barSmooth"></div></div>
+                <p style="margin-top:10px; font-size:0.9rem;">直線、緩入緩出</p>
+            </div>
+
+            <div class="viz-card border-top-slerp">
+                <h3 class="c-slerp">Slerp</h3>
+                <div class="canvas-box">
+                    <canvas id="canvasSlerp"></canvas>
+                </div>
+                <div class="progress-bar"><div class="progress-fill bg-slerp" id="barSlerp"></div></div>
+                <p style="margin-top:10px; font-size:0.9rem;">圓弧、等角速度</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta-section">
+        <h2>04. 實際應用體驗</h2>
+        <p>理論學完了，來看看這些演算法在遊戲開發中的實際用途。<br>包含：攝影機跟隨、角色飛船旋轉、UI 動畫。</p>
+        
+        <a href="./game.html" class="btn-game">進入互動演示 (Game Demo) ➤</a>
+    </section>
+
+    <footer style="text-align: center; padding: 40px 0; color: #555; font-size: 0.8rem;">
+        Generated by AI Assistant | Interpolation Algorithm Visualization
+    </footer>
+
+</div>
+
+<script>
+    const duration = 2000; // ms
+    let startTime = null;
+    let isPlaying = false;
+    let animationId = null;
+
+    // Canvas Setup
+    const setups = [
+        { id: 'canvasLerp', color: '#ff5252', type: 'lerp' },
+        { id: 'canvasSmooth', color: '#69f0ae', type: 'smooth' },
+        { id: 'canvasSlerp', color: '#448aff', type: 'slerp' }
+    ];
+
+    const ctxs = setups.map(s => {
+        const cvs = document.getElementById(s.id);
+        // 設定內部解析度
+        cvs.width = 260; 
+        cvs.height = 260;
+        return { 
+            ctx: cvs.getContext('2d'), 
+            ...s,
+            width: 260,
+            height: 260
+        };
+    });
+
+    // Vector Helper
+    class Vec2 { constructor(x, y) { this.x = x; this.y = y; } }
+
+    const startPos = new Vec2(30, 230);
+    const endPos = new Vec2(230, 30);
+    const center = new Vec2(30, 30); 
+    const radius = 200;
+
+    // Math Functions
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function smoothstep(t) { return t * t * (3 - 2 * t); }
+    function slerp2D(center, r, startAngle, endAngle, t) {
+        const currentAngle = lerp(startAngle, endAngle, t);
+        return new Vec2(
+            center.x + Math.cos(currentAngle) * r,
+            center.y + Math.sin(currentAngle) * r
+        );
+    }
+
+    // Drawing Helpers
+    function drawBall(ctx, x, y, color) {
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    function drawGrid(ctx, w, h, type) {
+        ctx.clearRect(0, 0, w, h);
+        
+        // Grid lines
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for(let i=0; i<=w; i+=26) { ctx.moveTo(i,0); ctx.lineTo(i,h); }
+        for(let i=0; i<=h; i+=26) { ctx.moveTo(0,i); ctx.lineTo(w,i); }
+        ctx.stroke();
+        
+        // Path hint
+        ctx.strokeStyle = '#555';
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        if(type === 'slerp') {
+            ctx.moveTo(startPos.x, startPos.y); // 起點
+            // 畫弧線
+            ctx.arc(center.x, center.y, radius, 0.5 * Math.PI, 0, true);
+        } else {
+            ctx.moveTo(startPos.x, startPos.y);
+            ctx.lineTo(endPos.x, endPos.y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Main Animation Loop
+    function loop(timestamp) {
+        if (!startTime) startTime = timestamp;
+        let elapsed = timestamp - startTime;
+        let t = Math.min(elapsed / duration, 1.0);
+
+        if (!isPlaying) {
+            t = 1.0; // Stop at end or start state
+            if (elapsed === timestamp) t = 0; // Initial state
+        }
+
+        // Update Time Text
+        document.getElementById('timeDisplay').innerText = t.toFixed(2);
+
+        ctxs.forEach(obj => {
+            const ctx = obj.ctx;
+            drawGrid(ctx, obj.width, obj.height, obj.type);
+
+            let pos = { x: 0, y: 0 };
+            
+            // Calculate Position based on Type
+            if (obj.type === 'lerp') {
+                pos.x = lerp(startPos.x, endPos.x, t);
+                pos.y = lerp(startPos.y, endPos.y, t);
+                document.getElementById('barLerp').style.width = (t * 100) + '%';
+            } 
+            else if (obj.type === 'smooth') {
+                let st = smoothstep(t);
+                pos.x = lerp(startPos.x, endPos.x, st);
+                pos.y = lerp(startPos.y, endPos.y, st);
+                document.getElementById('barSmooth').style.width = (st * 100) + '%';
+            } 
+            else if (obj.type === 'slerp') {
+                pos = slerp2D(center, radius, 0.5 * Math.PI, 0, t);
+                document.getElementById('barSlerp').style.width = (t * 100) + '%';
+            }
+
+            drawBall(ctx, pos.x, pos.y, obj.color);
+        });
+
+        if (t < 1.0 && isPlaying) {
+            animationId = requestAnimationFrame(loop);
+        } else {
+            isPlaying = false;
+            document.getElementById('btnPlay').innerText = "↺ 重播動畫";
+        }
+    }
+
+    // Event Listeners
+    document.getElementById('btnPlay').addEventListener('click', () => {
+        isPlaying = true;
+        startTime = null;
+        if(animationId) cancelAnimationFrame(animationId);
+        animationId = requestAnimationFrame(loop);
+        document.getElementById('btnPlay').innerText = "▶ 播放中...";
+    });
+
+    // Initial Render (t=0)
+    requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>

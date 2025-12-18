@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Drifter: Final Polish</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Orbitron', sans-serif;
+            cursor: crosshair;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        canvas { display: block; }
+
+        /* --- UI 層 --- */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            z-index: 5;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            padding-left: 160px; /* 避開左上角小地圖 */
+        }
+
+        .hud-section { flex: 1; }
+        .hud-center { text-align: center; display: flex; flex-direction: column; align-items: center; }
+        .hud-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+
+        .label {
+            font-size: 14px; color: #4deeea; opacity: 0.7; letter-spacing: 2px; margin-bottom: 5px;
+        }
+
+        .big-val {
+            font-size: 42px; color: #fff; font-weight: 900;
+            text-shadow: 0 0 10px #4deeea; margin: 0;
+        }
+
+        #timer-val { color: #ffeb3b; text-shadow: 0 0 10px #ffeb3b; }
+
+        /* 技能計時條 */
+        .bar-container {
+            width: 200px; height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid #bd00ff;
+            transform: skewX(-20deg);
+            margin-top: 5px;
+        }
+        #skill-timer-fill {
+            width: 100%; height: 100%; background: #bd00ff;
+            box-shadow: 0 0 10px #bd00ff; transition: width 0.1s linear;
+        }
+
+        /* 修復：血條樣式明確定義 */
+        .health-bar-container {
+            width: 200px; height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid #444;
+            transform: skewX(-20deg);
+            margin-top: 5px;
+            pointer-events: auto; /* 確保不被穿透 */
+        }
+        #health-fill {
+            width: 100%; height: 100%; background: #ff2a6d;
+            box-shadow: 0 0 10px #ff2a6d; transition: width 0.2s;
+        }
+
+        #current-skill-name {
+            font-size: 14px; color: #bd00ff; margin-top: 5px; letter-spacing: 1px;
+            text-shadow: 0 0 5px rgba(189, 0, 255, 0.5);
+        }
+
+        /* --- 覆蓋層 --- */
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            pointer-events: auto; transition: opacity 0.3s; z-index: 10;
+        }
+
+        h1 {
+            font-size: 64px; color: #fff; margin: 0 0 10px 0;
+            text-shadow: 4px 4px 0px #05d9e8; letter-spacing: 5px; text-align: center;
+        }
+        .subtitle {
+            font-size: 18px; color: #74f2ce; margin-bottom: 30px; letter-spacing: 2px;
+        }
+
+        /* --- 技能選擇佈局修正 --- */
+        #skill-selection-container {
+            display: none; /* JS 控制 flex */
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 900px;
+        }
+
+        #cards-wrapper {
+            display: flex;
+            flex-direction: row; /* 強制水平排列 */
+            gap: 30px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap; /* 只在螢幕極窄時換行 */
+            width: 100%;
+        }
+        
+        .skill-card {
+            width: 220px; height: 320px;
+            background: rgba(20, 20, 30, 0.9);
+            border: 2px solid #444; border-radius: 12px;
+            display: flex; flex-direction: column; align-items: center;
+            padding: 20px; cursor: pointer; transition: all 0.2s;
+            position: relative; overflow: hidden;
+        }
+        .skill-card:hover {
+            border-color: #bd00ff; transform: translateY(-10px);
+            box-shadow: 0 0 25px rgba(189, 0, 255, 0.4); background: rgba(30, 30, 45, 0.95);
+        }
+
+        .skill-icon-box {
+            width: 100px; height: 100px; margin-bottom: 20px; border-radius: 50%;
+            border: 2px solid #666; display: flex; justify-content: center; align-items: center;
+            background: #000;
+        }
+        .skill-name { color: #fff; font-size: 16px; font-weight: bold; margin-bottom: 10px; text-align: center; }
+        .skill-desc { color: #aaa; font-size: 13px; text-align: center; line-height: 1.4; }
+        .skill-type { 
+            position: absolute; top: 10px; right: 10px; 
+            font-size: 10px; color: #4deeea; border: 1px solid #444; 
+            padding: 2px 6px; border-radius: 4px; 
+        }
+
+        /* 針對筆電/橫向螢幕高度不足的修正 */
+        @media (max-height: 700px) {
+            h1 { font-size: 42px; margin-bottom: 5px; }
+            .subtitle { margin-bottom: 15px; }
+            .skill-card { width: 200px; height: 260px; padding: 15px; }
+            .skill-icon-box { width: 70px; height: 70px; margin-bottom: 10px; }
+            .skill-name { font-size: 14px; margin-bottom: 5px; }
+            .skill-desc { font-size: 11px; }
+            #skill-selection-container h2 { font-size: 20px; margin-bottom: 10px; }
+        }
+
+        /* 手機版適配 */
+        @media (max-width: 600px) {
+            .hud-top { padding-left: 0; flex-direction: column; gap: 10px; }
+            .hud-section { width: 100%; text-align: left; }
+            .hud-center { align-items: flex-start; } 
+            .hud-right { align-items: flex-start; }
+            
+            #cards-wrapper { flex-direction: column; } /* 手機版才垂直 */
+            .skill-card { width: 280px; height: 100px; flex-direction: row; padding: 10px; }
+            .skill-icon-box { width: 60px; height: 60px; margin-bottom: 0; margin-right: 15px; }
+            .skill-desc { text-align: left; font-size: 11px; }
+            .skill-name { text-align: left; margin-bottom: 5px; }
+            .skill-type { top: 5px; right: 5px; font-size: 8px; }
+        }
+
+        /* 通用元件 */
+        #menu-content { display: flex; flex-direction: column; align-items: center; }
+        button, .btn-link {
+            background: transparent; color: #fff; font-family: 'Orbitron', sans-serif;
+            font-size: 20px; padding: 12px 40px; border: 2px solid #05d9e8;
+            cursor: pointer; transition: all 0.3s; text-transform: uppercase;
+            box-shadow: 0 0 15px rgba(5, 217, 232, 0.2); text-decoration: none;
+            display: inline-block; outline: none; margin-top: 20px;
+        }
+        button:hover, .btn-link:hover {
+            background: #05d9e8; color: #000; box-shadow: 0 0 30px rgba(5, 217, 232, 0.8);
+        }
+        .btn-secondary { border-color: #555; color: #ccc; font-size: 16px; box-shadow: none; padding: 14px 30px; }
+        .btn-secondary:hover { background: #333; color: #fff; border-color: #fff; }
+        
+        .hidden { opacity: 0; pointer-events: none; display: none !important; }
+        
+        #reinforcement-msg {
+            position: absolute; top: 40%; width: 100%; text-align: center;
+            font-size: 48px; color: #ffeb3b; font-weight: 900;
+            text-shadow: 0 0 20px #ffeb3b; letter-spacing: 5px;
+            opacity: 0; transform: scale(0.5); pointer-events: none; z-index: 8;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #reinforcement-msg.active { opacity: 1; transform: scale(1); }
+
+        #stats-panel {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 15px 30px;
+            margin-bottom: 30px; background: rgba(255, 255, 255, 0.05);
+            padding: 20px 40px; border-radius: 8px; border-left: 4px solid #05d9e8;
+            opacity: 0; transform: translateY(20px); transition: all 0.5s ease;
+        }
+        #stats-panel.show { opacity: 1; transform: translateY(0); }
+        .stat-item { text-align: left; }
+        .stat-label { font-size: 12px; color: #aaa; letter-spacing: 1px; }
+        .stat-value { font-size: 24px; color: #fff; font-weight: bold; }
+        .stat-bonus { font-size: 12px; color: #ffeb3b; margin-left: 5px; }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="hud-section">
+                <div class="label">KILLS</div>
+                <h2 id="kill-val" class="big-val">0</h2>
+            </div>
+            
+            <div class="hud-section hud-center">
+                <div class="label">TIME</div>
+                <h2 id="timer-val" class="big-val">90</h2>
+                <div class="bar-container">
+                    <div id="skill-timer-fill"></div>
+                </div>
+                <div id="current-skill-name">SYSTEM NORMAL</div>
+            </div>
+
+            <div class="hud-section hud-right">
+                <div class="label">SHIELD INTEGRITY</div>
+                <div class="health-bar-container">
+                    <div id="health-fill"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center; color: rgba(255,255,255,0.3); font-size: 12px; margin-bottom: 20px;">
+            MINIMAP: TOP-LEFT • WASD to Move • MOUSE to Shoot
+        </div>
+    </div>
+
+    <div id="reinforcement-msg">ORBITAL STRIKE INBOUND</div>
+
+    <div id="overlay">
+        
+        <div id="menu-content">
+            <h1 id="title-text">NEON DRIFTER</h1>
+            <div class="subtitle" id="subtitle-text">DEFEND THE ZONE (90s)</div>
+
+            <div id="stats-panel">
+                <div class="stat-item">
+                    <div class="stat-label">HP BONUS</div>
+                    <div class="stat-value" id="stat-hp">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">KILL SCORE</div>
+                    <div class="stat-value" id="stat-kills">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">ACCURACY BONUS</div>
+                    <div class="stat-value" id="stat-accuracy">0%</div>
+                </div>
+                <div class="stat-item" style="border-top: 1px solid #444; margin-top: 5px; padding-top: 5px;">
+                    <div class="stat-label" style="color:#4deeea">TOTAL SCORE</div>
+                    <div class="stat-value" id="stat-total" style="color:#4deeea; font-size: 32px;">0</div>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button id="btn-start">START MISSION</button>
+                <a href="visualizer.html" class="btn-link btn-secondary">演算法原理圖解</a>
+            </div>
+        </div>
+
+        <div id="skill-selection-container">
+            <h2 style="color:#fff; width:100%; text-align:center; margin-bottom:15px; letter-spacing: 3px;">SELECT MODULE</h2>
+            <div id="cards-wrapper"></div>
+        </div>
+
+    </div>
+
+<script>
+    /**
+     * NEON DRIFTER: FINAL FIXED
+     * 修復：血條顯示、卡片響應式排列、暫停邏輯
+     */
+
+    const MathUtils = {
+        lerp: (a, b, t) => a + (b - a) * t,
+        smoothstep: (t) => t * t * (3 - 2 * t),
+        lerpAngle: (a, b, t) => {
+            let diff = b - a;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            return a + diff * t;
+        },
+        clamp: (val, min, max) => Math.max(min, Math.min(max, val)),
+        randRange: (min, max) => Math.random() * (max - min) + min
+    };
+
+    const SKILLS = [
+        { 
+            id: 'TRIDENT', name: 'TRIDENT VOLLEY', 
+            desc: 'Fire 3 spread bullets at once. Increases firepower.', type: 'OFFENSE',
+            drawIcon: (ctx, w, h) => {
+                ctx.strokeStyle = '#00ffcc'; ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(w/2, h*0.8); ctx.lineTo(w/2, h*0.2); 
+                ctx.moveTo(w/2, h*0.8); ctx.lineTo(w*0.2, h*0.3);
+                ctx.moveTo(w/2, h*0.8); ctx.lineTo(w*0.8, h*0.3);
+                ctx.stroke();
+            }
+        },
+        { 
+            id: 'SIPHON', name: 'VAMPIRE SIPHON', 
+            desc: 'Recover 5% of max HP each time you hit an enemy.', type: 'SUSTAIN',
+            drawIcon: (ctx, w, h) => {
+                ctx.fillStyle = '#ff2a6d';
+                ctx.beginPath();
+                ctx.moveTo(w/2, h*0.2);
+                ctx.bezierCurveTo(w*0.9, h*0.1, w*0.9, h*0.6, w/2, h*0.9);
+                ctx.bezierCurveTo(w*0.1, h*0.6, w*0.1, h*0.1, w/2, h*0.2);
+                ctx.fill();
+                ctx.fillStyle = '#fff'; ctx.font = 'bold 20px Arial'; ctx.textAlign='center';
+                ctx.fillText('+', w/2, h/2 + 8);
+            }
+        },
+        { 
+            id: 'HELLFIRE', name: 'HELLFIRE ROUNDS', 
+            desc: 'Bullets explode on impact, damaging nearby enemies.', type: 'OFFENSE',
+            drawIcon: (ctx, w, h) => {
+                ctx.fillStyle = '#ffaa00';
+                ctx.beginPath(); ctx.arc(w/2, h/2, 20, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#ff5500'; ctx.lineWidth = 2;
+                for(let i=0; i<8; i++){
+                    let a = (i/8)*Math.PI*2;
+                    ctx.beginPath(); ctx.moveTo(w/2 + Math.cos(a)*20, h/2 + Math.sin(a)*20);
+                    ctx.lineTo(w/2 + Math.cos(a)*35, h/2 + Math.sin(a)*35); ctx.stroke();
+                }
+            }
+        },
+        { 
+            id: 'REPAIR', name: 'NANO REPAIR', 
+            desc: 'INSTANT: Recover 30% HP immediately.', type: 'INSTANT',
+            drawIcon: (ctx, w, h) => {
+                ctx.fillStyle = '#4deeea';
+                ctx.fillRect(w/2 - 10, h*0.2, 20, h*0.6);
+                ctx.fillRect(w*0.2, h/2 - 10, w*0.6, 20);
+            }
+        },
+        { 
+            id: 'BARRIER', name: 'FORCE BARRIER', 
+            desc: 'Gain a shield that blocks 5 enemy collisions.', type: 'DEFENSE',
+            drawIcon: (ctx, w, h) => {
+                ctx.strokeStyle = '#bd00ff'; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(w/2, h/2, 30, 0, Math.PI*2); ctx.stroke();
+                ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(w/2, h/2, 8, 0, Math.PI*2); ctx.fill();
+            }
+        }
+    ];
+
+    const MAP_RADIUS = 1200; 
+    const GAME_DURATION = 90; 
+    const SKILL_INTERVAL = 15; 
+    const MINIMAP_SIZE = 140;
+    const MINIMAP_MARGIN = 20;
+    
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const GameState = { MENU: 0, PLAYING: 1, SKILL_SELECT: 2, ENDING_ANIMATION: 3, GAMEOVER: 4 };
+
+    let currentState = GameState.MENU;
+    let width, height;
+    let frameCount = 0;
+    let finalScore = 0;
+
+    let sessionStats = {
+        bulletsFired: 0, enemiesKilled: 0, timeLeft: GAME_DURATION, accuracy: 0, skillTimer: SKILL_INTERVAL 
+    };
+
+    const input = { x: 0, y: 0, keys: {}, mouseDown: false };
+    const camera = { x: 0, y: 0, shake: 0 };
+
+    let player = null;
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+    let shockwaves = [];
+
+    // --- Classes ---
+
+    class Particle {
+        constructor(x, y, color, speed, size, life) {
+            this.x = x; this.y = y; this.color = color;
+            this.angle = Math.random() * Math.PI * 2;
+            this.speed = MathUtils.randRange(speed * 0.5, speed * 1.5);
+            this.vx = Math.cos(this.angle) * this.speed;
+            this.vy = Math.sin(this.angle) * this.speed;
+            this.life = life; this.maxLife = life; this.size = size;
+        }
+        update() {
+            this.x += this.vx; this.y += this.vy;
+            this.vx *= 0.95; this.vy *= 0.95;
+            this.life--;
+        }
+        draw(ctx) {
+            const t = this.life / this.maxLife;
+            ctx.globalAlpha = MathUtils.smoothstep(t);
+            ctx.fillStyle = this.color;
+            ctx.beginPath(); ctx.arc(this.x, this.y, this.size * t, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    class Shockwave {
+        constructor() {
+            this.r = 10; this.maxR = MAP_RADIUS * 1.5; this.width = 50; this.alpha = 1.0; this.active = true;
+        }
+        update() {
+            this.r += 40; this.width *= 0.98;
+            if (this.r > this.maxR) { this.alpha -= 0.05; if(this.alpha <= 0) this.active = false; }
+        }
+        draw(ctx) {
+            if(!this.active) return;
+            ctx.save(); ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI * 2);
+            ctx.lineWidth = this.width; ctx.strokeStyle = `rgba(255, 235, 59, ${this.alpha})`;
+            ctx.shadowBlur = 50; ctx.shadowColor = '#ffeb3b'; ctx.stroke(); ctx.restore();
+        }
+    }
+
+    class Bullet {
+        constructor(x, y, angle) {
+            this.x = x; this.y = y; this.angle = angle;
+            this.speed = 18; this.life = 100;
+            this.vx = Math.cos(angle) * this.speed;
+            this.vy = Math.sin(angle) * this.speed;
+        }
+        update() {
+            this.x += this.vx; this.y += this.vy; this.life--;
+            if (frameCount % 2 === 0) particles.push(new Particle(this.x, this.y, '#05d9e8', 0.5, 2, 8));
+        }
+        draw(ctx) {
+            ctx.shadowBlur = 10; ctx.shadowColor = '#05d9e8';
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.x - this.vx * 0.6, this.y - this.vy * 0.6);
+            ctx.stroke(); ctx.shadowBlur = 0;
+        }
+    }
+
+    class Enemy {
+        constructor() {
+            const spawnAngle = Math.random() * Math.PI * 2;
+            const spawnDist = MAP_RADIUS; 
+            this.x = Math.cos(spawnAngle) * spawnDist;
+            this.y = Math.sin(spawnAngle) * spawnDist;
+            this.speed = MathUtils.randRange(1.5, 3.5);
+            this.angle = spawnAngle + Math.PI; 
+            this.size = 15;
+            this.color = '#ff2a6d';
+            this.spawnAnim = 0;
+        }
+        update() {
+            if (this.spawnAnim < 1) this.spawnAnim += 0.05;
+            let targetX = 0, targetY = 0;
+            if (player) { targetX = player.x; targetY = player.y; }
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+            const targetAngle = Math.atan2(dy, dx);
+            this.angle = MathUtils.lerpAngle(this.angle, targetAngle, 0.05); 
+            this.x += Math.cos(this.angle) * this.speed;
+            this.y += Math.sin(this.angle) * this.speed;
+        }
+        draw(ctx) {
+            const scale = MathUtils.smoothstep(this.spawnAnim);
+            ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle); ctx.scale(scale, scale);
+            ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+            ctx.fillStyle = '#000'; ctx.strokeStyle = this.color; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-8, 8); ctx.lineTo(-4, 0); ctx.lineTo(-8, -8);
+            ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+        }
+    }
+
+    class Player {
+        constructor() {
+            this.x = 0; this.y = 0;
+            this.vx = 0; this.vy = 0;
+            this.angle = 0; this.targetAngle = 0;
+            this.accel = 0.5; this.friction = 0.94;
+            this.hp = 100; this.maxHp = 100;
+            this.shootTimer = 0;
+            this.activeSkill = null; 
+            this.shieldStacks = 0;
+        }
+        update() {
+            if (input.keys['ArrowUp'] || input.keys['w']) this.vy -= this.accel;
+            if (input.keys['ArrowDown'] || input.keys['s']) this.vy += this.accel;
+            if (input.keys['ArrowLeft'] || input.keys['a']) this.vx -= this.accel;
+            if (input.keys['ArrowRight'] || input.keys['d']) this.vx += this.accel;
+
+            this.vx *= this.friction; this.vy *= this.friction;
+            this.x += this.vx; this.y += this.vy;
+
+            const dist = Math.hypot(this.x, this.y);
+            const limit = MAP_RADIUS - 20;
+            if (dist > limit) {
+                const angle = Math.atan2(this.y, this.x);
+                this.x = Math.cos(angle) * limit; this.y = Math.sin(angle) * limit;
+                this.vx *= -0.5; this.vy *= -0.5;
+            }
+
+            const dx = input.x - (this.x - camera.x + width/2);
+            const dy = input.y - (this.y - camera.y + height/2);
+            this.targetAngle = Math.atan2(dy, dx);
+            this.angle = MathUtils.lerpAngle(this.angle, this.targetAngle, 0.15);
+
+            if (input.mouseDown && this.shootTimer <= 0) {
+                this.shoot();
+                this.shootTimer = 7;
+            }
+            if (this.shootTimer > 0) this.shootTimer--;
+
+            if (Math.abs(this.vx) > 0.5 || Math.abs(this.vy) > 0.5) {
+                const angle = Math.atan2(this.vy, this.vx) + Math.PI;
+                particles.push(new Particle(this.x - Math.cos(angle)*15, this.y - Math.sin(angle)*15, '#4deeea', 2, 3, 20));
+            }
+        }
+        shoot() {
+            const recoil = 1;
+            if (this.activeSkill === 'TRIDENT') {
+                const angles = [0, -0.26, 0.26];
+                angles.forEach(offset => {
+                    bullets.push(new Bullet(
+                        this.x + Math.cos(this.angle + offset) * 20, 
+                        this.y + Math.sin(this.angle + offset) * 20, 
+                        this.angle + offset
+                    ));
+                });
+                sessionStats.bulletsFired += 3;
+            } else {
+                bullets.push(new Bullet(this.x + Math.cos(this.angle) * 20, this.y + Math.sin(this.angle) * 20, this.angle));
+                sessionStats.bulletsFired++;
+            }
+            this.vx -= Math.cos(this.angle) * recoil; 
+            this.vy -= Math.sin(this.angle) * recoil;
+            camera.shake = 4;
+        }
+        draw(ctx) {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            
+            if (this.shieldStacks > 0) {
+                ctx.save();
+                ctx.rotate(frameCount * 0.05);
+                ctx.strokeStyle = `rgba(189, 0, 255, ${0.4 + this.shieldStacks * 0.1})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI * 2); ctx.stroke();
+                for(let i=0; i<this.shieldStacks; i++) {
+                    const angle = (i / 5) * Math.PI * 2;
+                    ctx.fillStyle = '#bd00ff';
+                    ctx.beginPath(); ctx.arc(Math.cos(angle)*35, Math.sin(angle)*35, 4, 0, Math.PI*2); ctx.fill();
+                }
+                ctx.restore();
+            }
+
+            ctx.rotate(this.angle);
+            ctx.shadowBlur = 15; ctx.shadowColor = '#4deeea';
+            ctx.strokeStyle = '#4deeea'; ctx.lineWidth = 2; ctx.fillStyle = '#000';
+            ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-15, 15); ctx.lineTo(-5, 0); ctx.lineTo(-15, -15);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI*2); ctx.fill();
+            ctx.restore();
+        }
+        
+        applySkill(skillId) {
+            this.activeSkill = skillId;
+            const skillInfo = SKILLS.find(s => s.id === skillId);
+            if (skillId !== 'BARRIER') this.shieldStacks = 0;
+            if (skillId === 'REPAIR') {
+                this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.3);
+                createExplosion(this.x, this.y, '#4deeea', 20);
+            }
+            if (skillId === 'BARRIER') {
+                this.shieldStacks = 5;
+            }
+            document.getElementById('current-skill-name').innerText = skillInfo.name;
+            document.getElementById('health-fill').style.width = Math.max(0, this.hp) + "%";
+        }
+    }
+
+    // --- System ---
+
+    function init() {
+        resize();
+        window.addEventListener('resize', resize);
+        window.addEventListener('mousemove', e => { input.x = e.clientX; input.y = e.clientY; });
+        window.addEventListener('mousedown', () => input.mouseDown = true);
+        window.addEventListener('mouseup', () => input.mouseDown = false);
+        
+        window.addEventListener('keydown', e => {
+            const keysToPrevent = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Space'];
+            if (keysToPrevent.includes(e.key)) e.preventDefault();
+            input.keys[e.key] = true;
+        });
+        window.addEventListener('keyup', e => input.keys[e.key] = false);
+
+        document.getElementById('btn-start').addEventListener('click', function() {
+            this.blur(); startGame();
+        });
+        
+        for(let i=0; i<20; i++) {
+            particles.push(new Particle(Math.random()*width-width/2, Math.random()*height-height/2, '#4deeea', 1, 2, 1000));
+        }
+
+        requestAnimationFrame(loop);
+    }
+
+    function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+    }
+
+    function startGame() {
+        sessionStats = { bulletsFired: 0, enemiesKilled: 0, timeLeft: GAME_DURATION, accuracy: 0, skillTimer: SKILL_INTERVAL };
+        document.getElementById('kill-val').innerText = "0";
+        document.getElementById('health-fill').style.width = "100%";
+        document.getElementById('timer-val').innerText = GAME_DURATION;
+        document.getElementById('current-skill-name').innerText = "SYSTEM NORMAL";
+        document.getElementById('skill-timer-fill').style.width = "100%";
+        
+        document.getElementById('menu-content').classList.remove('hidden');
+        document.getElementById('skill-selection-container').style.display = 'none';
+        document.getElementById('stats-panel').classList.remove('show');
+        document.getElementById('reinforcement-msg').classList.remove('active');
+        
+        player = new Player();
+        bullets = []; enemies = []; particles = []; shockwaves = [];
+        camera.x = 0; camera.y = 0;
+        
+        currentState = GameState.PLAYING;
+        document.getElementById('overlay').classList.add('hidden');
+    }
+
+    function triggerSkillSelection() {
+        currentState = GameState.SKILL_SELECT; // 暫停遊戲邏輯
+        
+        const shuffled = SKILLS.sort(() => 0.5 - Math.random());
+        const options = shuffled.slice(0, 2);
+
+        const container = document.getElementById('cards-wrapper');
+        container.innerHTML = '';
+        
+        options.forEach(skill => {
+            const card = document.createElement('div');
+            card.className = 'skill-card';
+            
+            const iconBox = document.createElement('div');
+            iconBox.className = 'skill-icon-box';
+            const iconCvs = document.createElement('canvas');
+            iconCvs.width = 100; iconCvs.height = 100;
+            const iCtx = iconCvs.getContext('2d');
+            skill.drawIcon(iCtx, 100, 100);
+            iconBox.appendChild(iconCvs);
+
+            card.innerHTML = `
+                <div class="skill-type">${skill.type}</div>
+                <div class="skill-name">${skill.name}</div>
+                <div class="skill-desc">${skill.desc}</div>
+            `;
+            card.prepend(iconBox);
+
+            card.onclick = () => { selectSkill(skill.id); };
+            container.appendChild(card);
+        });
+
+        const overlay = document.getElementById('overlay');
+        overlay.classList.remove('hidden');
+        document.getElementById('menu-content').classList.add('hidden');
+        document.getElementById('skill-selection-container').style.display = 'flex';
+    }
+
+    function selectSkill(skillId) {
+        player.applySkill(skillId);
+        sessionStats.skillTimer = SKILL_INTERVAL;
+        
+        document.getElementById('overlay').classList.add('hidden');
+        document.getElementById('skill-selection-container').style.display = 'none';
+        document.getElementById('menu-content').classList.remove('hidden');
+        currentState = GameState.PLAYING;
+    }
+
+    function triggerWinSequence() {
+        currentState = GameState.ENDING_ANIMATION;
+        const msg = document.getElementById('reinforcement-msg');
+        msg.classList.add('active');
+        
+        shockwaves.push(new Shockwave());
+        camera.shake = 30;
+
+        setTimeout(() => {
+            enemies.forEach(e => { createExplosion(e.x, e.y, '#ffeb3b', 15); });
+            enemies = [];
+        }, 200);
+
+        setTimeout(() => {
+            msg.classList.remove('active');
+            gameOver(true);
+        }, 2500);
+    }
+
+    function gameOver(isWin) {
+        currentState = GameState.GAMEOVER;
+        const overlay = document.getElementById('overlay');
+        const title = document.getElementById('title-text');
+        const sub = document.getElementById('subtitle-text');
+        const btn = document.getElementById('btn-start');
+
+        overlay.classList.remove('hidden');
+        document.getElementById('skill-selection-container').style.display = 'none';
+        document.getElementById('menu-content').classList.remove('hidden');
+
+        const hpScore = player ? Math.max(0, Math.floor(player.hp * 50)) : 0;
+        const killScore = sessionStats.enemiesKilled * 100;
+        let accuracy = 0;
+        if (sessionStats.bulletsFired > 0) accuracy = (sessionStats.enemiesKilled / sessionStats.bulletsFired);
+        const accPercentage = Math.min(100, Math.floor(accuracy * 100)); 
+        const accScore = accPercentage * 50;
+
+        finalScore = hpScore + killScore + accScore;
+        if (!isWin) finalScore = Math.floor(finalScore * 0.5);
+
+        if (isWin) {
+            title.innerText = "MISSION ACCOMPLISHED";
+            title.style.textShadow = "4px 4px 0px #4deeea";
+            title.style.color = "#fff";
+            sub.innerText = "AREA SECURED BY REINFORCEMENTS";
+            btn.innerText = "NEXT MISSION";
+        } else {
+            title.innerText = "SIGNAL LOST";
+            title.style.textShadow = "4px 4px 0px #ff2a6d";
+            title.style.color = "#ff2a6d";
+            sub.innerText = "PLAYER TERMINATED";
+            btn.innerText = "RETRY";
+        }
+
+        document.getElementById('stat-hp').innerHTML = `${player ? Math.max(0, Math.floor(player.hp)) : 0} <span class="stat-bonus">(+${hpScore})</span>`;
+        document.getElementById('stat-kills').innerHTML = `${sessionStats.enemiesKilled} <span class="stat-bonus">(+${killScore})</span>`;
+        document.getElementById('stat-accuracy').innerHTML = `${accPercentage}% <span class="stat-bonus">(+${accScore})</span>`;
+        document.getElementById('stat-total').innerText = finalScore;
+
+        document.getElementById('stats-panel').classList.add('show');
+    }
+
+    function update() {
+        frameCount++;
+
+        // 核心修正：暫停邏輯
+        // 只有在 PLAYING 或 ENDING_ANIMATION 時才進行物理運算
+        const shouldUpdatePhysics = (currentState === GameState.PLAYING || currentState === GameState.ENDING_ANIMATION);
+
+        if (currentState === GameState.PLAYING) {
+            if (frameCount % 60 === 0) {
+                sessionStats.timeLeft--;
+                document.getElementById('timer-val').innerText = sessionStats.timeLeft;
+                if (sessionStats.timeLeft <= 0) {
+                    triggerWinSequence();
+                    return;
+                }
+                sessionStats.skillTimer--;
+                if (sessionStats.skillTimer <= 0) {
+                    triggerSkillSelection();
+                }
+            }
+            const skillProgress = (sessionStats.skillTimer / SKILL_INTERVAL) * 100;
+            document.getElementById('skill-timer-fill').style.width = skillProgress + "%";
+        }
+
+        if (shouldUpdatePhysics) {
+            if (currentState === GameState.PLAYING && frameCount % 50 === 0) {
+                enemies.push(new Enemy());
+                if(GAME_DURATION - sessionStats.timeLeft > 30) enemies.push(new Enemy());
+                if(GAME_DURATION - sessionStats.timeLeft > 60) enemies.push(new Enemy());
+            }
+
+            if (player) player.update();
+
+            bullets.forEach((b, i) => {
+                b.update();
+                const dist = Math.hypot(b.x, b.y);
+                if (b.life <= 0 || dist > MAP_RADIUS + 50) bullets.splice(i, 1);
+            });
+
+            enemies.forEach((e, i) => {
+                e.update();
+                if (currentState === GameState.PLAYING && player) {
+                    const dist = Math.hypot(e.x - player.x, e.y - player.y);
+                    if (dist < e.size + 15) {
+                        if (player.shieldStacks > 0) {
+                            player.shieldStacks--;
+                            e.angle = e.angle + Math.PI;
+                            e.x += Math.cos(e.angle) * 30; e.y += Math.sin(e.angle) * 30;
+                            camera.shake = 5;
+                            createExplosion(player.x, player.y, '#bd00ff', 5);
+                        } else {
+                            player.hp -= 15;
+                            document.getElementById('health-fill').style.width = Math.max(0, player.hp) + "%";
+                            camera.shake = 10;
+                            createExplosion(e.x, e.y, e.color, 10);
+                            enemies.splice(i, 1);
+                            if (player.hp <= 0) gameOver(false);
+                        }
+                    }
+                }
+            });
+
+            bullets.forEach((b, bi) => {
+                enemies.forEach((e, ei) => {
+                    const dist = Math.hypot(b.x - e.x, b.y - e.y);
+                    if (dist < e.size + 10) {
+                        if (currentState === GameState.PLAYING) {
+                            sessionStats.enemiesKilled++;
+                            document.getElementById('kill-val').innerText = sessionStats.enemiesKilled;
+                            if (player.activeSkill === 'SIPHON') {
+                                player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.05);
+                                document.getElementById('health-fill').style.width = player.hp + "%";
+                            }
+                            if (player.activeSkill === 'HELLFIRE') {
+                                createExplosion(e.x, e.y, '#ff5500', 15);
+                                enemies.forEach((otherE, oei) => {
+                                    if (oei !== ei) { 
+                                        const d2 = Math.hypot(otherE.x - e.x, otherE.y - e.y);
+                                        if (d2 < 100) { 
+                                            createExplosion(otherE.x, otherE.y, '#ff5500', 5);
+                                            otherE.isDead = true; sessionStats.enemiesKilled++;
+                                        }
+                                    }
+                                });
+                                for(let k = enemies.length-1; k>=0; k--){
+                                    if(enemies[k].isDead) enemies.splice(k, 1);
+                                }
+                            }
+                        }
+                        if(!player.activeSkill || player.activeSkill !== 'HELLFIRE') {
+                            createExplosion(e.x, e.y, '#ff2a6d', 8);
+                        }
+                        bullets.splice(bi, 1);
+                        enemies.splice(ei, 1);
+                    }
+                });
+            });
+        }
+
+        // 粒子特效在任何狀態下都更新，保持視覺動態
+        particles.forEach((p, i) => {
+            p.update();
+            if (p.life <= 0) particles.splice(i, 1);
+        });
+
+        shockwaves.forEach((s, i) => {
+            s.update();
+            if(!s.active) shockwaves.splice(i, 1);
+        });
+
+        // 攝影機在暫停時也需要跟隨玩家（如果玩家有位移）
+        let targetCamX = 0;
+        let targetCamY = 0;
+        if (player) {
+            const lookAheadX = (input.x - width/2) * 0.15;
+            const lookAheadY = (input.y - height/2) * 0.15;
+            targetCamX = player.x + lookAheadX;
+            targetCamY = player.y + lookAheadY;
+        }
+        camera.x = MathUtils.lerp(camera.x, targetCamX, 0.08);
+        camera.y = MathUtils.lerp(camera.y, targetCamY, 0.08);
+
+        if (camera.shake > 0) {
+            camera.x += Math.random() * camera.shake - camera.shake/2;
+            camera.y += Math.random() * camera.shake - camera.shake/2;
+            camera.shake *= 0.9;
+            if(camera.shake < 0.5) camera.shake = 0;
+        }
+    }
+
+    function createExplosion(x, y, color, count) {
+        for (let i = 0; i < count; i++) {
+            particles.push(new Particle(x, y, color, 4, 3, 30));
+        }
+    }
+
+    function draw() {
+        ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, width, height);
+
+        ctx.save();
+        ctx.translate(width/2, height/2);
+        ctx.translate(-camera.x, -camera.y);
+
+        ctx.strokeStyle = '#003366'; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.arc(0, 0, MAP_RADIUS, 0, Math.PI * 2); ctx.stroke();
+        ctx.shadowBlur = 20; ctx.shadowColor = '#0055aa';
+        ctx.strokeStyle = 'rgba(0, 100, 255, 0.3)'; ctx.stroke(); ctx.shadowBlur = 0;
+
+        drawGrid();
+
+        particles.forEach(p => p.draw(ctx));
+        enemies.forEach(e => e.draw(ctx));
+        bullets.forEach(b => b.draw(ctx));
+        shockwaves.forEach(s => s.draw(ctx));
+        
+        // 只要 Player 存在就畫，不管是不是 SKILL_SELECT 狀態，這樣背景才會顯示暫停畫面
+        if (player) player.draw(ctx);
+
+        ctx.restore();
+
+        if (currentState === GameState.PLAYING || currentState === GameState.ENDING_ANIMATION || currentState === GameState.SKILL_SELECT) {
+            drawMinimap();
+        }
+    }
+
+    function drawGrid() {
+        const gridSize = 150;
+        const left = camera.x - width/2 - 100;
+        const right = camera.x + width/2 + 100;
+        const top = camera.y - height/2 - 100;
+        const bottom = camera.y + height/2 + 100;
+
+        const startX = Math.floor(left / gridSize) * gridSize;
+        const startY = Math.floor(top / gridSize) * gridSize;
+
+        ctx.strokeStyle = 'rgba(5, 217, 232, 0.08)'; ctx.lineWidth = 1; ctx.beginPath();
+        for (let x = startX; x < right; x += gridSize) { ctx.moveTo(x, top); ctx.lineTo(x, bottom); }
+        for (let y = startY; y < bottom; y += gridSize) { ctx.moveTo(left, y); ctx.lineTo(right, y); }
+        ctx.stroke();
+    }
+
+    function drawMinimap() {
+        if (!player) return;
+        const mmX = MINIMAP_MARGIN + MINIMAP_SIZE/2;
+        const mmY = MINIMAP_MARGIN + MINIMAP_SIZE/2;
+        const scale = (MINIMAP_SIZE / 2) / MAP_RADIUS;
+
+        ctx.save(); ctx.translate(mmX, mmY);
+        ctx.fillStyle = 'rgba(0, 20, 40, 0.8)'; ctx.beginPath(); ctx.arc(0, 0, MINIMAP_SIZE/2, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#4deeea'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(player.x * scale, player.y * scale, 3, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#ff2a6d';
+        enemies.forEach(e => {
+            ctx.beginPath(); ctx.arc(e.x * scale, e.y * scale, 2, 0, Math.PI*2); ctx.fill();
+        });
+        const scanAngle = (frameCount * 0.05) % (Math.PI * 2);
+        ctx.strokeStyle = 'rgba(77, 238, 234, 0.3)'; ctx.lineWidth = 1; ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(Math.cos(scanAngle) * MINIMAP_SIZE/2, Math.sin(scanAngle) * MINIMAP_SIZE/2); ctx.stroke();
+        ctx.restore();
+    }
+
+    function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    init();
+
+</script>
+</body>
+</html>
